@@ -8,7 +8,7 @@ import { attachHighlight } from './texthl.js';
 import { exportPdf, exportGoodNotes, exportGoodNotesInk, GN_W_DEF, exportPngs, zipOf, fileBase } from './exporter.js';
 import { PACKS } from './packs.js';
 import { openWizard } from './wizard.js';
-import { openTopUp } from './extra.js';
+import { openTopUp, drawMissing } from './extra.js';
 import { checkText } from './grammar.js';
 import { dbPut, kvSet, kvGet } from './store.js';
 import { snapVersion, openVersions } from './versions.js';
@@ -16,7 +16,7 @@ import { snapVersion, openVersions } from './versions.js';
 const MARGINS = { schmal: [70, 60, 90, 80], normal: [120, 100, 140, 120], breit: [170, 150, 180, 150] };
 
 export function editorView(app) {
-  let doc = null, L = null, version = 0, pagesEl, fontObj = null, pane = 'ed', info, missEl, errEl, ta;
+  let doc = null, L = null, version = 0, pagesEl, fontObj = null, pane = 'ed', info, missEl, missPv, errEl, ta;
   const root = h('div', { class: 'editor' });
   const S = () => doc.s;
 
@@ -167,11 +167,12 @@ export function editorView(app) {
       }
     }
   });
-  info = h('div', { class: 'stat' }); missEl = h('div', { class: 'miss', hidden: true }); errEl = h('div', { class: 'miss', hidden: true });
+  info = h('div', { class: 'stat' }); missEl = h('div', { class: 'miss tap', hidden: true, role: 'button', tabindex: 0, title: 'Fehlende Zeichen jetzt zeichnen', onclick: () => fixMissing(), onkeydown: (e) => { if (e.key === 'Enter') fixMissing(); } }); errEl = h('div', { class: 'miss', hidden: true });
   const edPane = h('div', { class: 'pane ed on' }, tb, findBar, ta, missEl, errEl, info);
   const hlUpd = attachHighlight(ta);   // formatierte Ansicht unter dem Textfeld
   pagesEl = h('div', { class: 'preview' });
-  const pvPane = h('div', { class: 'pane pv' }, pagesEl);
+  missPv = h('div', { class: 'miss tap misspv', hidden: true, role: 'button', tabindex: 0, title: 'Fehlende Zeichen jetzt zeichnen', onclick: () => fixMissing(), onkeydown: (e) => { if (e.key === 'Enter') fixMissing(); } });
+  const pvPane = h('div', { class: 'pane pv' }, missPv, pagesEl);
   // Trenner zwischen Text und Blatt (nur bei nebeneinander), Breite wird gemerkt
   const splitter = h('div', { class: 'splitter', role: 'separator', 'aria-orientation': 'vertical', title: 'Ziehen, um die Breite zu ändern' }, h('i'));
   const split = h('div', { class: 'split' }, edPane, splitter, pvPane);
@@ -290,9 +291,10 @@ export function editorView(app) {
     const words = (doc.text.match(/\S+/g) || []).length;
     info.replaceChildren(h('span', null, `${words} ${words === 1 ? 'Wort' : 'Wörter'} · ${n} Zeichen · ${L.pages.length} ${L.pages.length === 1 ? 'Seite' : 'Seiten'}`), h('span', { class: 'sp1' }), h('span', null, FORMATS[fmtOf(S())].name));
     if (L.missing.length) {
-      missEl.hidden = false;
-      missEl.replaceChildren(ic('alert'), h('span', null, 'Fehlt in dieser Schrift: ', h('b', null, L.missing.slice(0, 14).join(' ') + (L.missing.length > 14 ? ' …' : ''))), btn('Hinzufügen', { cls: 'sm', onclick: () => addMissing(L.missing) }));
-    } else missEl.hidden = true;
+      const n = L.missing.length, txt = () => [ic('alert'), h('span', null, `${n} ${n === 1 ? 'Zeichen fehlt' : 'Zeichen fehlen'}: `, h('b', null, L.missing.slice(0, 14).join(' ') + (n > 14 ? ' …' : ''))), h('span', { class: 'sp1' }), h('span', { class: 'mgo' }, 'Jetzt nachzeichnen', ic('cr'))];
+      missEl.hidden = false; missEl.replaceChildren(...txt());
+      missPv.hidden = false; missPv.replaceChildren(...txt());
+    } else missEl.hidden = missPv.hidden = true;
     const er = L.errors || [];
     if (er.length) {
       const bad = er.filter(e => e.level !== 'warn').length;
@@ -314,6 +316,11 @@ export function editorView(app) {
     if (pane !== 'ed') { pane = 'ed'; showPane(); }
     ta.focus(); ta.setSelectionRange(pos, pos + (lines[n - 1] || '').length);
     const lh = parseFloat(getComputedStyle(ta).lineHeight) || 22; ta.scrollTop = Math.max(0, (n - 4) * lh);
+  }
+  function fixMissing() {   // Hinweis antippen: Zeichenfeld für genau die fehlenden Zeichen öffnen
+    const chars = L ? L.missing : []; if (!chars.length) return;
+    const rec = app.fonts.find(f => f.id === (doc.fontId || app.fontId));
+    if (rec && !rec.builtin) drawMissing(app, rec, chars); else addMissing(chars);
   }
   function addMissing(chars) {
     const need = new Set(), loose = [];

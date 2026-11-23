@@ -573,3 +573,10 @@ button.chip{border:0;cursor:pointer}
 @media(max-width:620px){.mhero .fx-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.mbody{padding-left:16px}}
 .mfoot{text-align:center;margin:8px 0 0;line-height:1.6}
 .mright .seg{margin:0}
+/* Fehlende Zeichen: ganzer Hinweis antippbar, öffnet das Zeichenfeld */
+.miss.tap{cursor:pointer;-webkit-tap-highlight-color:transparent}
+.miss.tap:active{background:rgba(180,83,9,.18)}
+.miss .mgo{display:inline-flex;align-items:center;gap:2px;font-weight:600;white-space:nowrap}
+.miss .mgo .ic{width:15px;height:15px}
+.misspv{border-top:0;border-bottom:1px solid var(--bd);flex:none}
+@media(min-width:900px){.misspv{display:none!important}}

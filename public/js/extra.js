@@ -20,6 +20,25 @@ export function missingOf(font) {
   return out;
 }
 
+// Fehlende Zeichen eines Dokuments sofort nachzeichnen: öffnet direkt das Zeichenfeld (ohne Umweg über „Ergänzen“)
+export function drawMissing(app, font, chars) {
+  const inf = info(), list = clean(chars.join ? chars.join('') : chars); if (!list.length) return;
+  let rep = 1; try { rep = Math.max(1, Math.min(3, +localStorage.getItem('hs:xrep') || 1)); } catch {}
+  const cells = []; for (const ch of list) for (let v = 0; v < rep; v++) { const i = inf.get(ch) || { pack: 'eigen', grp: 'Eigene Zeichen' }; cells.push({ ch, v, pack: i.pack, grp: i.grp }); }
+  openDraw({
+    cells, extra: true,
+    onDone: async (out) => {
+      const g = { ...font.g }, add = {};
+      for (const { ch, d } of out) (add[ch] ||= []).push(d);
+      for (const ch of Object.keys(add)) g[ch] = [...(g[ch] || []), ...add[ch]];
+      const rec = { ...font, g, updated: Date.now() }; delete rec.builtin;
+      for (const k of Object.keys(rec.g)) for (const v of rec.g[k]) delete v.img;
+      try { await dbPut('fonts', rec); const n = Object.keys(add).length; toast(`${n} ${n === 1 ? 'Zeichen' : 'Zeichen'} in „${rec.name}“ ergänzt`, 3000); await app.fontSaved(rec); }
+      catch (e) { toast('Speichern fehlgeschlagen: ' + e.message, 5000, 'err'); }
+    },
+  });
+}
+
 export function openTopUp(app, font, { chars = '' } = {}) {
   const inf = info(), count = (ch) => (font.g[ch] || []).length;
   const cellOf = (ch, v) => { const i = inf.get(ch) || { pack: 'eigen', grp: 'Eigene Zeichen', n: 1 }; return { ch, v, pack: i.pack, grp: i.grp }; };
