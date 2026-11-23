@@ -9,7 +9,7 @@ zeile: | |
 [/tabelle]
 `;
 
-export const TEMPLATE_CATS = [['alle', 'Alle'], ['mathe', 'Mathe'], ['lernen', 'Lernen'], ['alltag', 'Alltag']];
+export const TEMPLATE_CATS = [['alle', 'Alle'], ['mathe', 'Mathe'], ['lernen', 'Lernen'], ['nawi', 'Bio · Chemie · Physik'], ['alltag', 'Alltag']];
 
 export const TEMPLATES = [
   // ---------------- Mathe ----------------
@@ -497,7 +497,200 @@ schnitt: A,B | Haustiere; Fell; vier Beine
 [/mengen]
 ` },
 
-  { id: 'chemie', cat: 'lernen', title: 'Chemie: Reaktionsgleichungen', desc: 'Reaktionsgleichungen mit tiefgestellten Zahlen und Hinweisen', s: KAR, text: `[titel]Reaktionsgleichungen[/titel]
+  { id: 'steckbrief', cat: 'lernen', title: 'Steckbrief', desc: 'Tier, Pflanze oder Person auf einen Blick: Daten, Merkmale, Besonderheiten', s: KAR, text: `[titel]Steckbrief: Rotfuchs[/titel]
+
+${KOPF}
+[spalten]
+[spalte]
+[tabelle]
+kopf: Merkmal | Angabe
+zeile: Name | Rotfuchs
+zeile: Klasse | Säugetiere
+zeile: Größe | 60 bis 90 cm
+zeile: Gewicht | 5 bis 8 kg
+zeile: Alter | bis 10 Jahre
+zeile: Nahrung | Mäuse, Beeren, Insekten
+zeile: Lebensraum | Wald, Feld, Stadt
+[/tabelle]
+[/spalte]
+[spalte]
+[ueberschrift]Aussehen[/ueberschrift]
+
+- rotbraunes Fell
+- weiße Brust
+- buschiger Schwanz
+
+[ueberschrift]Besonderheiten[/ueberschrift]
+
+- jagt vor allem nachts
+- lebt im Bau
+[/spalte]
+[/spalten]
+
+[beispiel]
+titel: Wusstest du schon?
+Füchse hören eine Maus noch unter der Schneedecke rascheln.
+[/beispiel]
+
+[ueberschrift]Quellen[/ueberschrift]
+
+Schulbuch Biologie, S. 54
+` },
+
+  { id: 'buchvorstellung', cat: 'lernen', title: 'Buchvorstellung', desc: 'Autor, Inhalt, Figuren, Lieblingsstelle und eigene Meinung', s: LIN, text: `[titel]Buchvorstellung[/titel]
+
+${KOPF}
+**Titel:** Momo
+**Autor:** Michael Ende
+**Erschienen:** 1973 · 300 Seiten
+
+[ueberschrift]Darum geht es[/ueberschrift]
+
+In zwei, drei Sätzen: Wer will was, und was steht im Weg? Das Ende wird nicht verraten.
+
+[ueberschrift]Die wichtigsten Figuren[/ueberschrift]
+
+- **Momo:** kann besonders gut zuhören
+- **Die grauen Herren:** stehlen den Menschen die Zeit
+
+[ueberschrift]Meine Lieblingsstelle[/ueberschrift]
+
+[zitat]
+quelle: Seite 42
+Hier steht die Stelle, die ich vorlese.
+[/zitat]
+
+[ueberschrift]Meine Meinung[/ueberschrift]
+
+Was hat mir gefallen, was nicht? Für wen ist das Buch geeignet?
+` },
+
+  // ---------------- Bio · Chemie · Physik ----------------
+  { id: 'versuch-chemie', cat: 'nawi', title: 'Versuchsprotokoll Chemie', desc: 'Frage, Material, Durchführung, Beobachtung, Auswertung mit Reaktionsgleichung', s: KAR, text: `[titel]Versuchsprotokoll: Verbrennung von Magnesium[/titel]
+
+${KOPF}
+[ueberschrift]Fragestellung[/ueberschrift]
+
+Was passiert, wenn man Magnesium an der Luft erhitzt?
+
+[ueberschrift]Material und Chemikalien[/ueberschrift]
+
+- Magnesiumband (2 cm)
+- Tiegelzange, Brenner, feuerfeste Unterlage
+- Schutzbrille
+
+[ueberschrift]Durchführung[/ueberschrift]
+
+1. Das Magnesiumband mit der Tiegelzange festhalten.
+2. In die nicht leuchtende Brennerflamme halten.
+3. Nicht direkt in die Flamme schauen.
+
+[ueberschrift]Beobachtung[/ueberschrift]
+
+Das Band glüht grell weiß auf. Zurück bleibt ein weißes Pulver.
+
+[ueberschrift]Auswertung[/ueberschrift]
+
+[reaktion]
+gleichung: 2 Mg + O2 -> 2 MgO | Magnesiumoxid entsteht
+[/reaktion]
+
+Magnesium reagiert mit dem Sauerstoff der Luft. Die Reaktion ist ==exotherm==.
+
+[ueberschrift]Fehlerquellen[/ueberschrift]
+
+[antwort]
+hoehe: 20mm
+linien: 2
+[/antwort]
+` },
+
+  { id: 'versuch-physik', cat: 'nawi', title: 'Versuchsprotokoll Physik', desc: 'Aufbau mit Schaltplan, Messwerte, Diagramm mit Ausgleichsgerade', s: KAR, text: `[titel]Versuchsprotokoll: Ohmsches Gesetz[/titel]
+
+${KOPF}
+[ueberschrift]Fragestellung[/ueberschrift]
+
+Wie hängt die Stromstärke $I$ von der Spannung $U$ ab?
+
+[ueberschrift]Aufbau[/ueberschrift]
+
+[schaltung]
+bauteil: quelle | U
+bauteil: schalter zu | S
+bauteil: widerstand | R
+bauteil: amperemeter
+[/schaltung]
+
+[ueberschrift]Durchführung[/ueberschrift]
+
+Spannung in Schritten von 2 V erhöhen und jeweils die Stromstärke ablesen.
+
+[ueberschrift]Messwerte[/ueberschrift]
+
+[tabelle]
+kopf: U in V | I in mA
+zeile: 0 | 0
+zeile: 2 | 21
+zeile: 4 | 39
+zeile: 6 | 61
+zeile: 8 | 80
+[/tabelle]
+
+[streudiagramm titel="I-U-Diagramm"]
+punkt: 0 | 0
+punkt: 2 | 21
+punkt: 4 | 39
+punkt: 6 | 61
+punkt: 8 | 80
+xbeschriftung: U in V
+ybeschriftung: I in mA
+trend: ja
+[/streudiagramm]
+
+[ueberschrift]Auswertung[/ueberschrift]
+
+Die Messpunkte liegen auf einer Geraden durch den Ursprung: $I$ ist proportional zu $U$.
+
+$R = U / I = (8 "V") / (0,08 "A") = 100 "Ohm"$
+` },
+
+  { id: 'versuch-bio', cat: 'nawi', title: 'Versuchsprotokoll Biologie', desc: 'Hypothese, Mikroskop-Zeichnung, Beobachtung und Ergebnis', s: KAR, text: `[titel]Versuchsprotokoll: Zwiebelhautzellen[/titel]
+
+${KOPF}
+[ueberschrift]Fragestellung[/ueberschrift]
+
+Wie sieht eine Pflanzenzelle unter dem Mikroskop aus?
+
+[ueberschrift]Vermutung[/ueberschrift]
+
+Ich vermute, dass man Zellwand und Zellkern erkennen kann.
+
+[ueberschrift]Material[/ueberschrift]
+
+- Zwiebel, Pinzette, Skalpell
+- Objektträger, Deckgläschen, Wasser
+- Mikroskop, Iod-Kaliumiodid-Lösung
+
+[ueberschrift]Durchführung[/ueberschrift]
+
+1. Ein Stück Zwiebelhaut abziehen und auf einen Wassertropfen legen.
+2. Deckgläschen auflegen, mit Iodlösung anfärben.
+3. Bei 100-facher Vergrößerung betrachten.
+
+[ueberschrift]Mikroskopische Zeichnung[/ueberschrift]
+
+[antwort]
+hoehe: 60mm
+[/antwort]
+
+Vergrößerung: 100-fach · beschriften: Zellwand, Zellkern, Zellplasma
+
+[ueberschrift]Ergebnis[/ueberschrift]
+
+Die Zellen liegen dicht nebeneinander wie Ziegelsteine. Der ==Zellkern== ist dunkel angefärbt.
+` },
+
+  { id: 'chemie', cat: 'nawi', title: 'Chemie: Reaktionsgleichungen', desc: 'Reaktionsgleichungen mit tiefgestellten Zahlen und Hinweisen', s: KAR, text: `[titel]Reaktionsgleichungen[/titel]
 
 ${KOPF}
 [ueberschrift]Beispiele[/ueberschrift]
