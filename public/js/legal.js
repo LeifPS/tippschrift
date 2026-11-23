@@ -40,7 +40,6 @@ const PAGES = {
   credits: ['Credits & Lizenzen', () => [
     H('Papier „Kariert perfekte Kästchen“'), P('Vorlage von Tom Behrens (', A('https://codebytom.de', 'codebytom.de'), '), veröffentlicht unter der MIT-Lizenz. Danke, Tom!'),
     h('details', { class: 'faq' }, h('summary', null, 'MIT-Lizenz (Tom Behrens)'), h('pre', { class: 'lic' }, MIT('Tom Behrens'))),
-    H('Notenschrift'), P('Die Vorlage beim Zeichnen von Noten nutzt Noto Music von Google, lizenziert unter der ', A('https://openfontlicense.org', 'SIL Open Font License 1.1'), '.'),
     H('Marken'), P('GoodNotes ist eine Marke der Goodnotes Limited. Tippschrift ist ein unabhängiges Projekt und steht in keiner Verbindung zu Goodnotes.'),
     H('Tippschrift'), P('Ein Projekt von Leif Schmale (früher „STools“).'),
   ]],
