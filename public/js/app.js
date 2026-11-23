@@ -55,6 +55,7 @@ const app = {
     const last = await kvGet('lastS', {}), now = Date.now();
     const folder = o.folder !== undefined ? o.folder : this.folder, fv = (this.folderOf(folder) || {}).s || {};   // Vorgaben des Ordners (z. B. kariert für Mathe)
     const d = { id: uid(), title: 'Neues Dokument', text: '', fontId: this.fontId, created: now, updated: now, ...o, folder: folder || null, s: { ...DEF, ...last, ...fv, ...(o.s || {}) } };
+    if (d.s.kopf) { if (!d.s.kdate) d.s.kdate = new Date(now).toLocaleDateString('de-DE'); if (!d.s.kfach && this.folderOf(folder)) d.s.kfach = this.folderOf(folder).name; if (!d.s.kname) { try { d.s.kname = localStorage.getItem('hs:name') || ''; } catch (_) { /* egal */ } } }   // Kopfzeile: Datum von heute, Fach vom Ordner
     if (!o.id) d.id = uid(); await dbPut('docs', d); this.docSaved(d); return d;
   },
   async openDoc(id) { const d = this.docs.find(x => x.id === id); if (!d) return; this.doc = d; d.opened = Date.now(); dbPut('docs', d); kvSet('docId', id); if (d.fontId && this.fonts.find(f => f.id === d.fontId)) this.fontId = d.fontId; await this.views.write.load(d); this.show('write'); },

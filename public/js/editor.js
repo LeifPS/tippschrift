@@ -195,7 +195,7 @@ export function editorView(app) {
     if (!doc) return; const my = ++version;
     const font = fontObj = await app.getFont(doc.fontId || app.fontId);
     fontBtn.lastChild.textContent = font.name || 'Schrift';
-    await font.prepare(doc.text + ' ' + (S().header || '') + ' •');
+    await font.prepare(doc.text + ' ' + (S().header || '') + ' ' + [S().kname, S().kfach, S().kdate].join(' ') + ' •');
     if (my !== version) return;
     L = layout(doc.text, S(), font);
     pruneRerolls();
@@ -339,7 +339,7 @@ export function editorView(app) {
       // GoodNotes-Vorlagen haben feste Linien: Größe und Ränder kommen aus der Vorlage
       const pickGn = (paper, fmt) => { gnApply(s, paper, fmt); ch(); setTimeout(() => { api.close(); setTimeout(openSettings, 280); }, 150); };
       const sec = (t) => h('h3', { style: { margin: '20px 0 4px' } }, t);
-      b.append(h('div', { class: 'row wrap2', style: { gap: '8px', marginBottom: '4px' } }, btn('Neu würfeln', { icon: 'dice', cls: 'sm', onclick: () => { s.seed = (Math.random() * 1e6) | 0; ch(); } }), btn('Als Standard merken', { cls: 'sm', onclick: () => { const v = { ...s }; delete v.rr; delete v.seed; kvSet('lastS', v); toast('Das gilt jetzt für neue Dokumente'); } }), ...(app.folderOf(doc.folder) ? [btn(`Für „${app.folderOf(doc.folder).name}“ merken`, { cls: 'sm', title: 'Gilt dann für neue Dokumente in diesem Ordner', onclick: async () => { const f = app.folderOf(doc.folder), v = { ...s }; delete v.rr; delete v.seed; f.s = v; f.updated = Date.now(); await app.saveFolders(); toast(`Gilt jetzt für neue Dokumente in „${f.name}“`); } })] : []), btn('Zurücksetzen', { cls: 'sm', onclick: () => { Object.assign(s, { ...DEF }); ch(); b.parentNode.parentNode && b.replaceChildren(); openSettings(); } })));
+      b.append(h('div', { class: 'row wrap2', style: { gap: '8px', marginBottom: '4px' } }, btn('Neu würfeln', { icon: 'dice', cls: 'sm', onclick: () => { s.seed = (Math.random() * 1e6) | 0; ch(); } }), btn('Als Standard merken', { cls: 'sm', onclick: () => { const v = { ...s }; delete v.rr; delete v.seed; delete v.kdate; delete v.kfach; kvSet('lastS', v); toast('Das gilt jetzt für neue Dokumente'); } }), ...(app.folderOf(doc.folder) ? [btn(`Für „${app.folderOf(doc.folder).name}“ merken`, { cls: 'sm', title: 'Gilt dann für neue Dokumente in diesem Ordner', onclick: async () => { const f = app.folderOf(doc.folder), v = { ...s }; delete v.rr; delete v.seed; delete v.kdate; f.s = v; f.updated = Date.now(); await app.saveFolders(); toast(`Gilt jetzt für neue Dokumente in „${f.name}“`); } })] : []), btn('Zurücksetzen', { cls: 'sm', onclick: () => { Object.assign(s, { ...DEF }); ch(); b.parentNode.parentNode && b.replaceChildren(); openSettings(); } })));
       b.append(sec('Papier'), gnPicker(() => ({ paper: s.paper, fmt: s.fmt }), pickGn),
         h('p', { class: 'xs mut' }, 'Die Schrift sitzt genau auf den Linien der eingebauten GoodNotes-Vorlage' + (gnOf(s) && gnOf(s).vp ? ' (auf jeder zweiten Reihe)' : '') + '. Im GoodNotes-Export mit echten Strichen wird diese Vorlage als Hintergrund verwendet.'),
         ...(s.paper === 'gncornell' || s.paper === 'gnnoten' ? [] : [h('label', { class: 'f' }, 'Ränder'), chips([['schmal', 'Schmal'], ['normal', 'Normal'], ['breit', 'Breit']], () => Object.entries(MARGINS).find(([, v]) => v[0] === s.ml && v[1] === s.mr)?.[0] || '', (v) => { const m = MARGINS[v]; [s.ml, s.mr, s.mt, s.mb] = m; ch(); })]),
@@ -363,8 +363,21 @@ export function editorView(app) {
         ...(s.rr && Object.keys(s.rr).length ? [btn(`Neu geschriebene Wörter zurücksetzen (${Object.keys(s.rr).length})`, { cls: 'sm', onclick: () => { s.rr = {}; ch(); api.close(); openSettings(); } })] : []),
         btn('Alle Variationen aus', { cls: 'sm', onclick: () => { s.jit = 0; ch(); api.close(); openSettings(); } }));
       b.append(sec('Text'), toggle('Mathe-Kürzel', 'x^2 → x², a_1 → a₁, -> → →, \\alpha → α', () => s.kz, setK('kz')), toggle('Formatierung', '**fett**, __unterstrichen__, ==markiert==, # Überschrift', () => s.markup, setK('markup')), toggle('ß als ss schreiben', null, () => s.sz, setK('sz')));
+      // Kopfzeile auf Knopfdruck: Name (einmal eingeben, gilt für alle Dokumente), Fach (vom Ordner), Datum
+      const myName = () => { try { return localStorage.getItem('hs:name') || ''; } catch (_) { return ''; } };
+      const inp = (key, ph, onSet) => { const i = h('input', { type: 'text', value: s[key] || '', placeholder: ph, maxlength: 40, oninput: () => { s[key] = i.value; onSet && onSet(i.value); ch(); } }); return i; };
+      const kopfBox = h('div', { style: { display: s.kopf ? 'grid' : 'none', gap: '6px', margin: '4px 0 8px' } },
+        h('label', { class: 'f' }, 'Name'), inp('kname', 'Dein Name', (v) => { try { localStorage.setItem('hs:name', v); } catch (_) { /* egal */ } }),
+        h('label', { class: 'f' }, 'Fach'), inp('kfach', 'z. B. Mathe'),
+        h('label', { class: 'f' }, 'Datum'), inp('kdate', 'z. B. 23.11.2026'),
+        h('p', { class: 'xs mut' }, 'Links steht „Name · Fach“, rechts das Datum – auf jeder Seite. Den Namen merkt sich die App für alle Dokumente.'));
+      const kopfT = toggle('Kopfzeile mit Name, Fach und Datum', 'Oben auf jeder Seite, wie auf einem Arbeitsblatt', () => s.kopf, (v) => {
+        s.kopf = v;
+        if (v) { if (!s.kname) s.kname = myName(); if (!s.kfach) { const fo = app.folderOf && app.folderOf(doc.folder); if (fo) s.kfach = fo.name; } if (!s.kdate) s.kdate = new Date(doc.created || Date.now()).toLocaleDateString('de-DE'); for (const [k, el] of [['kname', kopfBox.children[1]], ['kfach', kopfBox.children[3]], ['kdate', kopfBox.children[5]]]) el.value = s[k] || ''; }
+        kopfBox.style.display = v ? 'grid' : 'none'; ch(); });
       const hi = h('input', { type: 'text', value: s.header || '', placeholder: 'z. B. Leif · Biologie · {datum}', maxlength: 80, oninput: () => { s.header = hi.value; ch(); } });
-      b.append(sec('Kopf- und Fußzeile'), h('label', { class: 'f' }, 'Kopfzeile (auf jeder Seite)'), hi, h('p', { class: 'xs mut' }, 'Platzhalter: {datum} und {n} (Seitenzahl)'), toggle('Seitenzahlen', 'Unten mittig auf jeder Seite', () => s.pageNum, setK('pageNum')));
+      b.append(sec('Kopf- und Fußzeile'), kopfT, kopfBox, toggle('Seitenzahlen', 'Unten mittig auf jeder Seite', () => s.pageNum, setK('pageNum')),
+        h('details', { class: 'xs', style: { marginTop: '6px' } }, h('summary', { class: 'mut' }, 'Eigene Kopfzeile (Freitext)'), h('div', { style: { display: 'grid', gap: '4px', marginTop: '6px' } }, hi, h('p', { class: 'xs mut' }, 'Platzhalter: {datum} und {n} (Seitenzahl). Wird nur benutzt, wenn die Kopfzeile oben aus ist.'))));
     }, { wide: true });
   }
 

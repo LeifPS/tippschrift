@@ -435,7 +435,11 @@ export function layout(text, S, font) {
     return out;
   };
   live.forEach((pg, i) => {
-    if (S.header && S.header.trim()) pg.push(...stat(prep(S.header.replace(/\{n\}/g, i + 1).replace(/\{datum\}/g, new Date().toLocaleDateString('de-DE')), S), 'l', Math.max(60, MT - lineH * .25), 100 + i));
+    if (S.kopf) {   // Kopfzeile auf Knopfdruck: links „Name · Fach“, rechts das Datum
+      const yy = Math.max(60, MT - lineH * .25), l = [S.kname, S.kfach].map((x) => (x || '').trim()).filter(Boolean).join(' · ');
+      if (l) pg.push(...stat(prep(l, S), 'l', yy, 100 + i));
+      if (S.kdatum !== false && (S.kdate || '').trim()) pg.push(...stat(prep(S.kdate.trim(), S), 'r', yy, 150 + i));
+    } else if (S.header && S.header.trim()) pg.push(...stat(prep(S.header.replace(/\{n\}/g, i + 1).replace(/\{datum\}/g, new Date().toLocaleDateString('de-DE')), S), 'l', Math.max(60, MT - lineH * .25), 100 + i));
     if (S.pageNum) pg.push(...stat((S.pageNumFmt || '{n}').replace(/\{n\}/g, i + 1).replace(/\{gesamt\}/g, total), 'c', PH - Math.max(40, MB * .45), 200 + i));
   });
   return { pages: live, lineH, k, missing: [...missing], PW, PH, errors };
