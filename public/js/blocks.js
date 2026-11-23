@@ -295,6 +295,33 @@ function dashPoly(pts, dash, gap) {   // Polylinie in Striche zerlegen
 }
 function parseXY(s) { const m = String(s || '').match(/^\s*\(?\s*(-?[\d.,]+)\s*[,;|]\s*(-?[\d.,]+)\s*\)?\s*$/); return m ? [parseFloat(m[1].replace(',', '.')), parseFloat(m[2].replace(',', '.'))] : null; }
 const LS = (v) => { const s = String(v || '').toLowerCase(); return /gestrich|dash/.test(s) ? 'dash' : /gepunkt|dot/.test(s) ? 'dot' : 'solid'; };
+// Beschriftungen im Koordinatensystem so setzen, dass sie weder einander noch Linien, Kurven oder Punkte überdecken.
+// Jede Beschriftung hat Kandidaten (Grundlinien-Positionen, die gewünschte zuerst); gewählt wird die mit den wenigsten Konflikten.
+function placeLabels(labels, taken, items, B, u) {
+  if (!labels.length) return;
+  const segs = [];
+  let pid = 0; for (const it of items) { const p = it.path; if (!p || p.a === .65 || !p.pts || p.pts.length < 2) continue; pid++; for (let i = 1; i < p.pts.length; i++) segs.push([p.pts[i - 1][0], p.pts[i - 1][1], p.pts[i][0], p.pts[i][1], pid]); }
+  const hits = (r, s) => {   // Strecke schneidet Rechteck? (Liang-Barsky)
+    const [x1, y1, x2, y2] = s; if (Math.max(x1, x2) < r[0] || Math.min(x1, x2) > r[2] || Math.max(y1, y2) < r[1] || Math.min(y1, y2) > r[3]) return false;
+    let t0 = 0, t1 = 1; const dx = x2 - x1, dy = y2 - y1;
+    for (const [p, q] of [[-dx, x1 - r[0]], [dx, r[2] - x1], [-dy, y1 - r[1]], [dy, r[3] - y1]]) { if (p === 0) { if (q < 0) return false; } else { const t = q / p; if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; } } }
+    return true;
+  };
+  const pad = .2 * u, pad2 = .05 * u;   // Abstand zu anderen Texten bzw. zu Linien
+  const cost = (r) => {
+    const q = [r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad], q2 = [r[0] - pad2, r[1] - pad2, r[2] + pad2, r[3] + pad2]; let c = 0;
+    for (const t of taken) { const ox = Math.min(q[2], t[2]) - Math.max(q[0], t[0]), oy = Math.min(q[3], t[3]) - Math.max(q[1], t[1]); if (ox > 0 && oy > 0) c += 1000 + ox * oy; }
+    let last = -1; for (const s of segs) if (s[4] !== last && hits(q2, s)) { c += 40; last = s[4]; }   // je Linie/Kurve einmal zählen
+    if (r[0] < B.x0 || r[2] > B.x1 || r[1] < B.y0 - .3 * u || r[3] > B.y1) c += 600;
+    return c;
+  };
+  for (const L of [...labels].sort((a, b) => a.prio - b.prio)) {
+    let best = null, bc = Infinity;
+    L.cands.forEach(([px, py, extra = 0], i) => { const r = [px, py - L.b.asc, px + L.b.w, py + L.b.desc], c = cost(r) + i * .5 + extra; if (c < bc) { bc = c; best = [px, py]; } });
+    items.push(...shiftItems(L.b.items, best[0], best[1])); taken.push([best[0], best[1] - L.b.asc, best[0] + L.b.w, best[1] + L.b.desc]);
+  }
+}
+
 function graphBlock(el, ctx) {
   const o = opts(el, ctx), u = ctx.u, W = ctx.W, ink = o.col || null, komma = o.dezimal !== 'punkt', items = [];
   // Wertebereiche
@@ -343,7 +370,10 @@ function graphBlock(el, ctx) {
   const ux = cpu < 1 ? Math.round(1 / cpu) : 1;
   const stepX = sxN || (G ? ux : niceStep(xmax - xmin, pw / (4 * u))), stepY = syN || (G ? ux : niceStep(ymax - ymin, ph / (3.4 * u)));
   const R = { x0: X0, x1: X0 + pw, y0: Y0, y1: Y0 + ph };
-  if (tb) items.push(...shiftItems(tb.items, (gwTot - tb.w) / 2, tb.asc));
+  // Beschriftungen ohne Überlappung: belegte Textflächen und später zu setzende Beschriftungen
+  const taken = [], labels = [], rectOf = (b, px, py) => [px, py - b.asc, px + b.w, py + b.desc];
+  const put = (b, px, py) => { items.push(...shiftItems(b.items, px, py)); taken.push(rectOf(b, px, py)); };
+  if (tb) put(tb, (gwTot - tb.w) / 2, tb.asc);
   const gsX = gridStep || stepX, gsY = gridStep || stepY, GC = '#9aa3b0';
   if (gridOn) { for (const x of labelsOf(xmin, xmax, gsX)) items.push(P([[fx(x), R.y0], [fx(x), R.y1]], .3, GC, { a: .65 })); for (const y of labelsOf(ymin, ymax, gsY)) items.push(P([[R.x0, fy(y)], [R.x1, fy(y)]], .3, GC, { a: .65 })); }
   // Achsen
@@ -354,12 +384,12 @@ function graphBlock(el, ctx) {
     items.push(P([[ay0, R.y1 + .3 * u], [ay0, R.y0 - 1.1 * u]], 1.1, ink), arrow([ay0, R.y0 - 1.1 * u], [0, -1]));
     const xl = getP(el, 'xbeschriftung') || 'x', yl = getP(el, 'ybeschriftung') || 'y';
     const xb = mathBox(ctx, xl, { sc: .9, col: ink }).box, yb = mathBox(ctx, yl, { sc: .9, col: ink }).box;
-    items.push(...shiftItems(xb.items, R.x1 + 1.5 * u, ax0 + xb.asc + .2 * u), ...shiftItems(yb.items, ay0 + .5 * u, R.y0 - 1.1 * u + yb.asc * .6));
+    put(xb, R.x1 + 1.5 * u, ax0 + xb.asc + .2 * u); put(yb, ay0 + .5 * u, R.y0 - 1.1 * u + yb.asc * .6);
     // Teilstriche und Zahlen
     const t = .3 * u;
-    for (const x of labelsOf(xmin, xmax, stepX)) { if (Math.abs(x) < 1e-9) continue; items.push(P([[fx(x), ax0 - t], [fx(x), ax0 + t]], .9, ink)); if (showNums) { const b = textBox(ctx, fmtNum(x, 4, komma), .8, ink); items.push(...shiftItems(b.items, fx(x) - b.w / 2, Math.min(ax0 + t + .35 * u + b.asc, R.y1 + 2.5 * u))); } }
-    for (const y of labelsOf(ymin, ymax, stepY)) { if (Math.abs(y) < 1e-9) continue; items.push(P([[ay0 - t, fy(y)], [ay0 + t, fy(y)]], .9, ink)); if (showNums) { const b = textBox(ctx, fmtNum(y, 4, komma), .8, ink); items.push(...shiftItems(b.items, ay0 - t - .35 * u - b.w, fy(y) + b.asc * .42)); } }
-    if (showNums && xmin <= 0 && xmax >= 0 && ymin <= 0 && ymax >= 0 && pw / (xmax - xmin) >= 52 && ph / (ymax - ymin) >= 52) { const b = textBox(ctx, '0', .8, ink); items.push(...shiftItems(b.items, ay0 - .35 * u - b.w, ax0 + .35 * u + b.asc)); }
+    for (const x of labelsOf(xmin, xmax, stepX)) { if (Math.abs(x) < 1e-9) continue; items.push(P([[fx(x), ax0 - t], [fx(x), ax0 + t]], .9, ink)); if (showNums) { const b = textBox(ctx, fmtNum(x, 4, komma), .8, ink); put(b, fx(x) - b.w / 2, Math.min(ax0 + t + .35 * u + b.asc, R.y1 + 2.5 * u)); } }
+    for (const y of labelsOf(ymin, ymax, stepY)) { if (Math.abs(y) < 1e-9) continue; items.push(P([[ay0 - t, fy(y)], [ay0 + t, fy(y)]], .9, ink)); if (showNums) { const b = textBox(ctx, fmtNum(y, 4, komma), .8, ink); put(b, ay0 - t - .35 * u - b.w, fy(y) + b.asc * .42); } }
+    if (showNums && xmin <= 0 && xmax >= 0 && ymin <= 0 && ymax >= 0 && pw / (xmax - xmin) >= 52 && ph / (ymax - ymin) >= 52) { const b = textBox(ctx, '0', .8, ink); put(b, ay0 - .35 * u - b.w, ax0 + .35 * u + b.asc); }
   }
   // Funktionen zeichnen
   const roots = [], marks = [];
@@ -384,7 +414,13 @@ function graphBlock(el, ctx) {
     for (const ln of lines) { if (f.ls === 'solid') items.push(P(ln, lw, col)); else for (const d of dashPoly(ln, f.ls === 'dot' ? 1.2 : 1.1 * u, f.ls === 'dot' ? .9 * u : .7 * u)) items.push(P(d, lw, col, f.ls === 'dot' ? {} : {})); }
     f.col2 = col; f.lines = lines;
     // Beschriftung am rechten Rand
-    if (f.name && !bool(getP(el, 'legende'), false)) { const last = lines.length ? lines[lines.length - 1] : null; const nb = mathBox(ctx, f.name, { sc: .85, col }).box; let px, py; if (last) { const p = last[last.length - 1]; px = Math.min(p[0] - nb.w - 1.3 * u, R.x1 - nb.w); py = p[1] + .2 * u; if (py < R.y0 + nb.asc) py = R.y0 + nb.asc + .3 * u; items.push(...shiftItems(nb.items, Math.max(R.x0, px), py)); } }
+    if (f.name && !bool(getP(el, 'legende'), false) && lines.length) {
+      const nb = mathBox(ctx, f.name, { sc: .85, col }).box, cands = [], last = lines[lines.length - 1], p = last[last.length - 1];
+      { let px = Math.min(p[0] - nb.w - 1.3 * u, R.x1 - nb.w), py = p[1] + .2 * u; if (py < R.y0 + nb.asc) py = R.y0 + nb.asc + .3 * u; cands.push([Math.max(R.x0, px), py]); }   // wie bisher: am rechten Ende
+      const all = lines.flat(), g = .45 * u;
+      for (const fr of [.94, .86, .76, .64, .5, .36, .22, .1]) { const q = all[Math.round(fr * (all.length - 1))]; if (!q) continue; for (const [dx, dy] of [[1, -1], [-1, -1], [1, 1], [-1, 1]]) cands.push([dx > 0 ? q[0] + g : q[0] - g - nb.w, dy < 0 ? q[1] - g - nb.desc : q[1] + g + nb.asc]); }
+      labels.push({ b: nb, cands, prio: 3 });
+    }
     // Nullstellen, Extrema
     const wantRoots = f.nst != null ? f.nst : bool(getP(el, 'nullstellen'), false), wantExt = f.ext != null ? f.ext : bool(getP(el, 'extrema'), false);
     const S0 = 2400; let py0 = null, px0 = null, dy0 = null;
@@ -403,7 +439,13 @@ function graphBlock(el, ctx) {
   }
   // Punkte und Strecken, Beschriftungen
   const cross = (x, y, col, mk = 'kreuz') => { const s = .32 * u, cx = fx(x), cy = fy(y); if (mk === 'punkt') items.push(P([[cx, cy], [cx + .3, cy]], 4.2, col)); else if (mk === 'kreis') { const pts = []; for (let k = 0; k <= 20; k++) pts.push([cx + s * Math.cos(k / 20 * 6.2832), cy + s * Math.sin(k / 20 * 6.2832)]); items.push(P(pts, 1, col)); } else items.push(P([[cx - s, cy - s], [cx + s, cy + s]], 1.2, col), P([[cx - s, cy + s], [cx + s, cy - s]], 1.2, col)); };
-  const place = (x, y, label, col, dx = .5, dy = -.5, left = false) => { if (!label) return; const b = mathBox(ctx, label, { sc: .85, col }).box; let px = left ? fx(x) - b.w - .45 * u : fx(x) + dx * u, py = fy(y) + dy * u; if (px + b.w > gwTot) px = fx(x) - b.w - .4 * u; if (py - b.asc < R.y0 - u) py = fy(y) + b.asc + .5 * u; items.push(...shiftItems(b.items, px, py)); };
+  const place = (x, y, label, col, dx = .5, dy = -.5, left = false, fixed = false) => {
+    if (!label) return; const b = mathBox(ctx, label, { sc: .85, col }).box; let px = left ? fx(x) - b.w - .45 * u : fx(x) + dx * u, py = fy(y) + dy * u; if (px + b.w > gwTot) px = fx(x) - b.w - .4 * u; if (py - b.asc < R.y0 - u) py = fy(y) + b.asc + .5 * u;
+    if (fixed) { labels.push({ b, cands: [[px, py]], prio: 0 }); return; }
+    const ax = fx(x), ay = fy(y), cands = [[px, py]];   // gewünschte Stelle zuerst, dann rundherum (nah, dann weiter weg)
+    [.45, 1.2, 2.2].forEach((gg, ring) => { const g = gg * u; for (const [ddx, ddy] of [[1, -1], [1, 1], [-1, -1], [-1, 1], [1, 0], [-1, 0], [0, -1], [0, 1]]) cands.push([ddx > 0 ? ax + g : ddx < 0 ? ax - g - b.w : ax - b.w / 2, ddy < 0 ? ay - g - b.desc : ddy > 0 ? ay + g + b.asc : ay + (b.asc - b.desc) / 2, [0, 45, 110][ring]]); });
+    labels.push({ b, cands, prio: 1 });
+  };
   const pointDefs = [];
   for (const k of el.kids) if (k.name === 'point') pointDefs.push({ x: num(getP(k, 'x')), y: num(getP(k, 'y')), name: getP(k, 'name') || getP(k, 'beschriftung'), col: color(getP(k, 'farbe')), mk: (getP(k, 'marke') || 'kreuz').toLowerCase(), line: k.line });
   for (const p of allP(el, 'punkt')) { const t = splitBar(p.v), d = { x: num(t[0]), y: num(t[1]), name: null, col: null, mk: 'kreuz', line: p.line }; for (const q of t.slice(2)) { if (isColor(q)) d.col = color(q); else if (/^(kreuz|punkt|kreis)$/i.test(q)) d.mk = q.toLowerCase(); else d.name = q; } pointDefs.push(d); }
@@ -468,9 +510,10 @@ function graphBlock(el, ctx) {
   }
   for (const p of allP(el, 'kreis')) { const t = splitBar(p.v), c = pair(t[0]), r = nn(t[1]); if (!c || r == null) { ctx.err(p.line, 'kreis: Mittelpunkt und Radius angeben, z. B. kreis: 0,0 | 3 | blau'); continue; } let col = null, nm = null; for (const q of t.slice(2)) { if (isColor(q)) col = color(q); else nm = q; } const pts = []; for (let k = 0; k <= 72; k++) pts.push([fx(c[0] + r * Math.cos(k / 72 * 6.2832)), fy(c[1] + r * Math.sin(k / 72 * 6.2832))]); items.push(P(pts, 1.2, col || ink)); cross(c[0], c[1], col || ink, 'kreuz'); if (nm) place(c[0], c[1], nm, col || ink); }
   for (const p of allP(el, 'gerade')) { const t = splitBar(p.v), a = pair(t[0]), b = pair(t[1]); if (!a || !b) { ctx.err(p.line, 'gerade: zwei Punkte angeben, z. B. gerade: 0,0 | 4,2'); continue; } let col = null, nm = null; for (const q of t.slice(2)) { if (isColor(q)) col = color(q); else nm = q; } const dx = b[0] - a[0], dy = b[1] - a[1], far = 4 * Math.max(xmax - xmin, ymax - ymin), ln = Math.hypot(dx, dy) || 1; const A = [a[0] - dx / ln * far, a[1] - dy / ln * far], B = [a[0] + dx / ln * far, a[1] + dy / ln * far]; let t0 = 0, t1 = 1; const ddx = B[0] - A[0], ddy = B[1] - A[1]; let ok = true; for (const [pp, qq] of [[-ddx, A[0] - xmin], [ddx, xmax - A[0]], [-ddy, A[1] - ymin], [ddy, ymax - A[1]]]) { if (pp === 0) { if (qq < 0) ok = false; } else { const r = qq / pp; if (pp < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r); } } if (!ok || t0 >= t1) continue; const C = [A[0] + t0 * ddx, A[1] + t0 * ddy], D = [A[0] + t1 * ddx, A[1] + t1 * ddy]; items.push(P([[fx(C[0]), fy(C[1])], [fx(D[0]), fy(D[1])]], 1.2, col || ink)); if (nm) place(D[0], D[1], nm, col || ink, -1.5, -.5); }
-  for (const k of el.kids) if (k.name === 'label') { const x = num(getP(k, 'x')), y = num(getP(k, 'y')), t = getP(k, 'text') || text(k).trim() || getP(k, 'name'); if (x == null || y == null || !t) { ctx.err(k.line, 'Beschriftung braucht x, y und text'); continue; } place(x, y, t, color(getP(k, 'farbe')) || ink, 0, 0); }
+  for (const k of el.kids) if (k.name === 'label') { const x = num(getP(k, 'x')), y = num(getP(k, 'y')), t = getP(k, 'text') || text(k).trim() || getP(k, 'name'); if (x == null || y == null || !t) { ctx.err(k.line, 'Beschriftung braucht x, y und text'); continue; } place(x, y, t, color(getP(k, 'farbe')) || ink, 0, 0, false, true); }
   // Legende
-  if (bool(getP(el, 'legende'), false)) { const named = F.filter(f => f.name); let ly = R.y0 + .9 * u; for (const f of named) { const nb = mathBox(ctx, f.name, { sc: .85, col: ink }).box; items.push(P([[R.x1 - nb.w - 3 * u, ly - .3 * u], [R.x1 - nb.w - 1.2 * u, ly - .3 * u]], 1.5, f.col2)); items.push(...shiftItems(nb.items, R.x1 - nb.w - .9 * u, ly)); ly += nb.asc + nb.desc + .5 * u; } }
+  if (bool(getP(el, 'legende'), false)) { const named = F.filter(f => f.name); let ly = R.y0 + .9 * u; for (const f of named) { const nb = mathBox(ctx, f.name, { sc: .85, col: ink }).box; items.push(P([[R.x1 - nb.w - 3 * u, ly - .3 * u], [R.x1 - nb.w - 1.2 * u, ly - .3 * u]], 1.5, f.col2)); put(nb, R.x1 - nb.w - .9 * u, ly); taken.push([R.x1 - nb.w - 3.2 * u, ly - nb.asc, R.x1, ly + nb.desc]); ly += nb.asc + nb.desc + .5 * u; } }
+  placeLabels(labels, taken, items, { x0: 0, y0: 0, x1: gwTot, y1: Y0 + ph + padB }, u);
   return { w: gwTot, h: Y0 + ph + padB, base: 1.85 * u, flat: true, items, align: o.align || 'mitte', snap: G ? { x: fx(Math.ceil(xmin / ux - 1e-9) * ux), y: fy(Math.floor(ymax / ux + 1e-9) * ux) } : null };
 }
 
