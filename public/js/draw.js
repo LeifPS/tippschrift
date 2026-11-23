@@ -56,7 +56,7 @@ export function openDraw({ cells, onDone, onClose, extra = false }) {   // extra
   const flag = (k, dflt) => { try { const v = localStorage.getItem(k); return v == null ? dflt : v !== '0'; } catch (_) { return dflt; } };
   const setFlag = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch (_) { /* Speicher gesperrt */ } };
   const done = new Map(); let idx = 0, once = false, multi = flag('hs:multi', true), sawPen = false, ppu = 4;
-  let fields = [], act = 0;   // fields: { c, cv, ctx, base, bg, strokes, cur } – ein Feld je Variante der aktuellen Gruppe
+  let fields = [], act = 0; const pool = [];   // fields: { c, cv, ctx, base, bg, strokes, cur } – ein Feld je Variante der aktuellen Gruppe
   const key = (c) => c.ch + '|' + c.v;
   const label = h('div', { class: 'drlabel' });
   const grp = h('span', { class: 'xs mut drgrp' }), prog = h('b'), cnt = h('span', { class: 'xs mut' }), pbar = h('div', { class: 'wzprog drprog' }, h('i', { class: 'on' }));
@@ -160,6 +160,9 @@ export function openDraw({ cells, onDone, onClose, extra = false }) {   // extra
     };
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
     cv.addEventListener('contextmenu', e => e.preventDefault());
+    // Safari auf dem iPad: schnelle Doppel-Striche sonst manchmal als Doppeltipp/Geste gedeutet und abgebrochen
+    for (const t of ['touchstart', 'touchmove', 'touchend']) cv.addEventListener(t, (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+    cv.addEventListener('dblclick', (e) => e.preventDefault());
     return f;
   }
 
@@ -167,7 +170,12 @@ export function openDraw({ cells, onDone, onClose, extra = false }) {   // extra
     cancelAuto(); const n = grpLen(idx), group = cells.slice(idx, idx + n), c = cells[idx];
     clearTimeout(deb); const same = fields.length === n && fields.every(f => !f.cur);
     if (same) fields.forEach((f, i) => { f.c = group[i]; f.strokes = (done.get(key(f.c)) || []).map(s => ({ p: s.p.map(q => q.slice()) })); f.cur = null; });   // Canvas wiederverwenden: kein neues Anlegen beim Weiterspringen
-    else { fields = group.map(makeField); fieldsEl.replaceChildren(...fields.map(f => f.cv)); }
+    else {
+      // Felder wiederverwenden (nur fehlende neu anlegen): ein Strich, der genau beim automatischen Weiterspringen beginnt, landet so nicht auf einem entfernten Feld
+      while (pool.length < n) pool.push(makeField(group[pool.length]));
+      fields = pool.slice(0, n); fields.forEach((f, i) => { f.c = group[i]; f.strokes = (done.get(key(f.c)) || []).map(s => ({ p: s.p.map(q => q.slice()) })); f.cur = null; });
+      fieldsEl.replaceChildren(...fields.map(f => f.cv));
+    }
     act = Math.max(0, fields.findIndex(f => !f.strokes.length)); hilite();
     label.textContent = describeChar(c.ch, c.pack); grp.textContent = c.grp + (n > 1 ? ` · ${n} Varianten` : c.v ? ' · Variante ' + (c.v + 1) : '');
     refresh(); if (same) fields.forEach(f => paint(f)); else size();
