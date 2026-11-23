@@ -1,0 +1,13 @@
+{
+  // Tippschrift: eigener Worker (früher Teil von leif-game-hub). Eigene Domains werden im Cloudflare-Dashboard verbunden:
+  // tippschrift.de, www.tippschrift.de, tippschrift.com/.info/.store (+www) sowie die alten st.leifps.de und handschrift.leifps.de.
+  "name": "tippschrift",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "ai": { "binding": "AI" },
+  // Abgleich: dieselbe D1-Datenbank wie bisher (Tabellen hs_sync, hs_sync_part, hs_limit), damit nichts verloren geht
+  "d1_databases": [
+    { "binding": "DB", "database_name": "lgh", "database_id": "9582193f-3ae1-48ad-b591-2e9ee2607f4d" }
+  ]
+}
