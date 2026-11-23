@@ -11,6 +11,7 @@ import { openWizard } from './wizard.js';
 import { openTopUp } from './extra.js';
 import { checkText } from './grammar.js';
 import { dbPut, kvSet, kvGet } from './store.js';
+import { snapVersion, openVersions } from './versions.js';
 
 const MARGINS = { schmal: [70, 60, 90, 80], normal: [120, 100, 140, 120], breit: [170, 150, 180, 150] };
 
@@ -126,6 +127,9 @@ export function editorView(app) {
         item('Textdatei einfügen', '.txt oder .md vom Gerät an der Cursorposition einfügen', 'folder', () => { const f = h('input', { type: 'file', accept: '.txt,.md,.markdown,.hdf,text/plain,text/markdown', style: { display: 'none' }, onchange: async () => { const file = f.files[0]; f.remove(); if (!file) return; try { insert(await file.text()); toast(`„${file.name}“ eingefügt`); } catch (e) { toast('Datei konnte nicht gelesen werden', 3200, 'err'); } } }); document.body.append(f); f.click(); }),
         item('Als Textdatei speichern', 'Den Text als .txt sichern (ohne Handschrift)', 'download', () => saveFile(new Blob([ta.value], { type: 'text/plain;charset=utf-8' }), `${fileBase(doc.title)}.txt`)),
         item('Als HDF-Datei speichern', 'Den Text mit Visuals als .hdf sichern', 'download', () => saveFile(new Blob([ta.value], { type: 'text/plain;charset=utf-8' }), `${fileBase(doc.title)}.hdf`)),
+        item('Ältere Versionen', 'Einen früheren Stand dieses Dokuments ansehen und zurückholen', 'refresh', async () => { await saveNow(); openVersions(app, doc, {
+          onRestore: async (v) => { hPush(); doc.s = { ...v.s }; ta.value = v.text; fire(); await saveNow(); },
+          onCopy: async (v) => { const n = await app.newDoc({ ...doc, id: undefined, text: v.text, s: { ...v.s }, title: (doc.title || 'Dokument') + ' (ältere Version)', autoT: false, created: Date.now(), updated: Date.now(), opened: 0 }); await app.openDoc(n.id); toast('Kopie geöffnet'); } }); }),
         item('Alles markieren', 'Den ganzen Text auswählen', 'check', () => { ta.focus(); ta.select(); }),
         item('Datum einfügen', 'Heutiges Datum an der Cursorposition', 'info', () => insert(new Date().toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }))),
         item(spellOn() ? 'Rechtschreibprüfung ausschalten' : 'Rechtschreibprüfung einschalten', 'Rote Wellenlinien im Textfeld', 'edit', () => { const on = !spellOn(); try { localStorage.setItem('hs:spell', on ? '1' : '0'); } catch (_) { /* egal */ } ta.spellcheck = on; toast(on ? 'Rechtschreibprüfung an' : 'Rechtschreibprüfung aus'); }),
@@ -184,7 +188,7 @@ export function editorView(app) {
   const showPane = () => { edPane.classList.toggle('on', pane === 'ed'); pvPane.classList.toggle('on', pane === 'pv'); segEl.replaceChildren(seg([['ed', 'Schreiben'], ['pv', 'Vorschau']], () => pane, v => { pane = v; showPane(); })); if (pane === 'pv') drawVisible(); };
 
   // ---------- Speichern ----------
-  const saveNow = async () => { if (!doc) return; if (autoName(doc)) title.value = doc.title; doc.updated = Date.now(); await dbPut('docs', doc); app.docSaved(doc); };
+  const saveNow = async () => { if (!doc) return; if (autoName(doc)) title.value = doc.title; doc.updated = Date.now(); await dbPut('docs', doc); app.docSaved(doc); snapVersion(doc); };
   const saveSoon = debounce(saveNow, 500);
   const renderSoon = debounce(() => render(), 140);
 
@@ -441,7 +445,7 @@ export function editorView(app) {
 
   return {
     el: root,
-    async load(d) { doc = d; title.value = d.title || ''; ta.value = d.text || ''; hlUpd(); hReset(); toggleFind(false); wraps.forEach(w => w.remove()); wraps = []; dirty.clear(); L = null; await render(); },
+    async load(d) { snapVersion(d); doc = d; title.value = d.title || ''; ta.value = d.text || ''; hlUpd(); hReset(); toggleFind(false); wraps.forEach(w => w.remove()); wraps = []; dirty.clear(); L = null; await render(); },
     refresh() { return render(); },
     focus() { ta && ta.focus(); },
     get doc() { return doc; },

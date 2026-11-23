@@ -8,6 +8,7 @@ import { layout, drawPage, ensureImages, PAPERS, PAPER_COLORS, PENS, GNPAPER, DE
 import { gnPicker } from './papier.js';
 import { uid } from './util.js';
 import { openTemplates } from './vorlagen.js';
+import { openVersions, dropVersions } from './versions.js';
 
 const SORTS = [['recent', 'Zuletzt benutzt'], ['created', 'Zuletzt erstellt'], ['name', 'Name A–Z'], ['custom', 'Eigene Reihenfolge']];
 const used = (d) => Math.max(d.opened || 0, d.updated || 0, d.created || 0);
@@ -124,7 +125,7 @@ export function docsView(app) {
       };
       fill();
       b.append(h('p', { class: 'sm mut', style: { margin: '0 0 12px' } }, 'Gelöschte Dokumente bleiben hier 30 Tage, danach werden sie automatisch endgültig gelöscht.'), list,
-        app.trash.length > 1 ? h('div', { style: { marginTop: '14px' } }, btn('Papierkorb leeren', { icon: 'trash', cls: 'danger', onclick: async () => { if (await confirmBox(`Alle ${app.trash.length} Dokumente endgültig löschen?`, 'Leeren')) { for (const d of [...app.trash]) await dbDel('docs', d.id); await app.loadDocs(); api.close(); draw(); } } })) : null);
+        app.trash.length > 1 ? h('div', { style: { marginTop: '14px' } }, btn('Papierkorb leeren', { icon: 'trash', cls: 'danger', onclick: async () => { if (await confirmBox(`Alle ${app.trash.length} Dokumente endgültig löschen?`, 'Leeren')) { for (const d of [...app.trash]) { await dbDel('docs', d.id); dropVersions(d.id); } await app.loadDocs(); api.close(); draw(); } } })) : null);
     });
   }
 
@@ -186,6 +187,9 @@ export function docsView(app) {
         btn('Umbenennen', { icon: 'edit', onclick: async () => { api.close(); const nm = await promptBox('Name des Dokuments', d.title || ''); if (nm) { d.title = nm; d.autoT = false; d.updated = Date.now(); await dbPut('docs', d); app.docSaved(d); draw(); } } }),
         btn('In Ordner verschieben', { icon: 'folder', onclick: () => { api.close(); setTimeout(() => moveSheet(d), 250); } }),
         btn('Duplizieren', { icon: 'copy', onclick: async () => { api.close(); await app.newDoc({ ...d, id: undefined, title: (d.title || 'Dokument') + ' (Kopie)', created: Date.now(), updated: Date.now(), opened: 0 }); draw(); toast('Dupliziert'); } }),
+        btn('Ältere Versionen', { icon: 'refresh', onclick: () => { api.close(); setTimeout(() => openVersions(app, d, {
+          onRestore: async (v) => { d.text = v.text; d.s = { ...v.s }; d.updated = Date.now(); await dbPut('docs', d); app.docSaved(d); thumbs.delete(d.id); draw(); },
+          onCopy: async (v) => { await app.newDoc({ ...d, id: undefined, text: v.text, s: { ...v.s }, title: (d.title || 'Dokument') + ' (ältere Version)', autoT: false, created: Date.now(), updated: Date.now(), opened: 0 }); draw(); toast('Als Kopie angelegt'); } }), 250); } }),
         btn('An den Anfang', { icon: 'cl', onclick: move(-1) }), btn('Ans Ende', { icon: 'cr', onclick: move(1) }),
         btn('Text als Datei speichern', { icon: 'download', onclick: () => { api.close(); saveFile(new Blob([d.text], { type: 'text/plain' }), fileBase(d.title) + '.txt'); } }),
         btn('In den Papierkorb', { icon: 'trash', cls: 'danger', onclick: async () => { api.close(); thumbs.delete(d.id); await app.trashDoc(d); draw(); toast('Im Papierkorb – 30 Tage lang wiederherstellbar', 3000); } })));
