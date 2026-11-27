@@ -614,7 +614,7 @@ html.inked-open,html.inked-open body{overflow:hidden;overscroll-behavior:none}
 .ietool{width:42px;height:42px;border:0;border-radius:12px;background:transparent;display:grid;place-items:center;color:var(--tx);cursor:pointer;-webkit-tap-highlight-color:transparent}
 .ietool .ic{width:23px;height:23px}
 .ietool.on{background:rgba(47,107,255,.13);color:var(--acc,#2f6bff)}
-.iecol{width:28px;height:28px;border-radius:50%;border:0;background:var(--c);box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);cursor:pointer;padding:0}
+.iecol{width:28px;height:28px;border-radius:50%;border:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);cursor:pointer;padding:0}
 .iecol.on{box-shadow:0 0 0 2px var(--surf),0 0 0 4px var(--acc,#2f6bff)}
 .iesz{width:34px;height:34px;border:0;border-radius:10px;background:transparent;display:grid;place-items:center;cursor:pointer}
 .iesz i{display:block;border-radius:50%;background:var(--tx)}

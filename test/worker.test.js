@@ -89,3 +89,12 @@ test('Beta: nur mit Zugangscode, Cookie gilt nur für /beta, alte Adressen haben
   assert.equal((await handle(withC('https://st.leifps.de/beta/'), e)).status, 404);
   assert.equal((await handle(withC('https://tippschrift.de/beta/'), env)).status, 401);   // ohne den Umgebungscode ungültig
 });
+
+test('Härtung: Sicherheits-Header und zu große Uploads werden vor dem Lesen abgelehnt', async () => {
+  const a = await handle(r('https://tippschrift.de/'), env);
+  assert.equal(a.headers.get('x-frame-options'), 'DENY'); assert.match(a.headers.get('permissions-policy'), /camera=\(\)/); assert.match(a.headers.get('strict-transport-security'), /max-age/);
+  const big = await handle(new Request('https://tippschrift.de/api/sync/' + 'a'.repeat(16) + '/v1/0', { method: 'PUT', headers: { 'content-length': String(5_000_000) }, body: 'x' }), { ...env, DB: makeD1() });
+  assert.equal(big.status, 413);
+  const t = await handle(new Request('https://tippschrift.de/api/titel', { method: 'POST', headers: { 'content-length': String(200_000) }, body: '{}' }), { ...env, AI: {}, DB: makeD1() });
+  assert.equal(t.status, 413);
+});

@@ -32,6 +32,9 @@ export async function handle(request, env) {
   if (!main || isBeta) h.set('x-robots-tag', 'noindex, nofollow, noarchive');
   if (isBeta) h.set('cache-control', 'no-cache, private');   // nur tippschrift.de soll in Suchmaschinen auftauchen
   h.set('referrer-policy', 'no-referrer');
+  h.set('x-frame-options', 'DENY');   // nicht in fremde Seiten einbetten (Klick-Fallen)
+  h.set('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+  if (main) h.set('strict-transport-security', 'max-age=31536000');
   h.set('x-content-type-options', 'nosniff');
   if (path === '/sw.js') h.set('service-worker-allowed', '/');
   // Programmdateien immer beim Server nachfragen (ETag), die Offline-Fassung kommt vom Service Worker der App

@@ -28,13 +28,16 @@ async function limit(db, k, max, ms) {
 // Für die Missbrauchs-Bremse wird nie die IP selbst gespeichert, nur ein gekürzter, nicht umkehrbarer Prüfwert
 const ip = async (req) => { const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('stools:' + (req.headers.get('cf-connecting-ip') || 'x')))); return [...d.slice(0, 6)].map((b) => b.toString(16).padStart(2, '0')).join(''); };
 
+const tooBig = (req, max) => { const n = Number(req.headers.get('content-length') || 0); return n > max; };   // vor dem Lesen prüfen
 export async function hsApi(request, env) {
   const url = new URL(request.url), p = url.pathname.split('/').filter(Boolean), m = request.method;
   try {
+    if ((m === 'POST' || m === 'PUT') && tooBig(request, MAX_PART + 4096)) return J({ error: 'Zu groß' }, 413);
     if (p[1] === 'titel' && p.length === 2) {
       if (m !== 'POST') return J({ error: 'Nicht erlaubt' }, 405);
       if (!env.AI) return J({ error: 'Titelvorschläge sind auf dem Server nicht eingerichtet.' }, 503);
       if (env.DB) { await schema(env.DB); if (!(await limit(env.DB, 'titel:' + (await ip(request)), 40, 3600e3))) return J({ error: 'Zu viele Vorschläge in kurzer Zeit. Bitte später nochmal.' }, 429); }
+      if (tooBig(request, 64 * 1024)) return J({ error: 'Zu viel Text' }, 413);
       const b = await request.json().catch(() => ({})), text = String(b.text || '').replace(/\[[^\]\n]{0,40}\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2500);
       if (text.length < 3) return J({ error: 'Zu wenig Text für einen Titel.' }, 400);
       let r; try { r = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', { max_tokens: 30, temperature: .7, messages: [
@@ -73,6 +76,10 @@ export async function hsApi(request, env) {
         }
         if (m === 'PUT') {
           if (!(await limit(db, 'sync:' + (await ip(request)), 600, 3600e3))) return J({ error: 'Zu viele Anfragen' }, 429);
+          // nie bestätigte Stücke (abgebrochene Uploads) nach einem Tag löschen und je Kennung begrenzen
+          if (Math.random() < .05) await db.prepare('DELETE FROM hs_sync_part WHERE t < ? AND NOT EXISTS (SELECT 1 FROM hs_sync s WHERE s.id = hs_sync_part.id AND s.v = hs_sync_part.v)').bind(Date.now() - 864e5).run();
+          const open = await db.prepare('SELECT COUNT(*) AS n FROM hs_sync_part WHERE id = ? AND v <> ?').bind(id, v).first('n');
+          if (Number(open) > MAX_PARTS * 3) return J({ error: 'Zu viele offene Stücke' }, 429);
           const data = await request.text();
           if (data.length > MAX_PART || !/^[A-Za-z0-9+/=]*$/.test(data)) return J({ error: 'Stück ungültig oder zu groß' }, 413);
           await db.prepare('INSERT INTO hs_sync_part (id, v, i, data, t) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id, v, i) DO UPDATE SET data = excluded.data, t = excluded.t').bind(id, v, i, data, Date.now()).run();

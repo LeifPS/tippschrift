@@ -43,7 +43,7 @@ export function openInkEditor(doc, { L, S, onSave, onWords }) {
     tools.querySelectorAll('.ietool').forEach((b) => b.classList.toggle('on', b.dataset.t === st.tool));
     const isM = st.tool === 'marker', list = isM ? MARKS : PENS, cur = isM ? st.mark : st.pen;
     colors.hidden = sizes.hidden = !(st.tool === 'pen' || isM);
-    colors.replaceChildren(...list.map((c, i) => h('button', { type: 'button', class: 'iecol' + (i === cur ? ' on' : ''), style: { '--c': c }, 'aria-label': 'Farbe ' + (i + 1), onclick: () => { if (isM) { st.mark = i; SS('mark', i); } else { st.pen = i; SS('pen', i); } updBar(); } })));
+    colors.replaceChildren(...list.map((c, i) => h('button', { type: 'button', class: 'iecol' + (i === cur ? ' on' : ''), style: { background: c }, 'aria-label': 'Farbe ' + (i + 1), onclick: () => { if (isM) { st.mark = i; SS('mark', i); } else { st.pen = i; SS('pen', i); } updBar(); } })));
     const W = isM ? MARK_W : PEN_W, cw = isM ? st.markW : st.penW;
     sizes.replaceChildren(...W.map((w, i) => h('button', { type: 'button', class: 'iesz' + (i === cw ? ' on' : ''), 'aria-label': ['dünn', 'mittel', 'dick'][i], onclick: () => { if (isM) { st.markW = i; SS('markW', i); } else { st.penW = i; SS('penW', i); } updBar(); } }, h('i', { style: { width: (6 + i * 5) + 'px', height: (6 + i * 5) + 'px' } }))));
     undoB.disabled = hi <= 0; redoB.disabled = hi >= hist.length - 1; fingerB.classList.toggle('on', st.finger);
