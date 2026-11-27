@@ -71,3 +71,21 @@ test('Umzug: Zweit-Domains leiten auf tippschrift.de, alte Adresse nur noch Umzu
   const alt = await handschriftWeiche(r('https://st.leifps.de/'), env); assert.equal(alt.status, 200); assert.match(alt.headers.get('x-robots-tag') || '', /noindex/);
   const neu = await handschriftWeiche(r('https://tippschrift.de/'), env); assert.equal(neu.status, 200); assert.equal(neu.headers.get('x-robots-tag'), null);
 });
+
+test('Beta: nur mit Zugangscode, Cookie gilt nur für /beta, alte Adressen haben keine Beta', async () => {
+  const e = { ...env, BETA_CODES: 'test-test-1234' }, code = 'TEST-TEST-1234';   // Testcode nur über die Umgebung
+  const page = await handle(r('https://tippschrift.de/beta/'), e);
+  assert.equal(page.status, 401); assert.match(await page.text(), /Zugangscode/);
+  assert.equal((await handle(r('https://tippschrift.de/beta/js/app.js'), e)).status, 401);
+  assert.equal((await handle(r('https://tippschrift.de/beta'), e)).status, 302);
+  const bad = await handle(new Request('https://tippschrift.de/beta/anmelden', { method: 'POST', body: new URLSearchParams({ code: 'AAAA-BBBB-CCCC' }) }), e);
+  assert.equal(bad.status, 401);
+  const ok = await handle(new Request('https://tippschrift.de/beta/anmelden', { method: 'POST', body: new URLSearchParams({ code: ' test test 1234 ' }) }), e);
+  assert.equal(ok.status, 303); const ck = ok.headers.get('set-cookie'); assert.match(ck, /tsbeta=TEST-TEST-1234/); assert.match(ck, /Path=\/beta/); assert.match(ck, /HttpOnly/);
+  const withC = (u) => new Request(u, { headers: { cookie: 'tsbeta=' + code } });
+  const a = await handle(withC('https://tippschrift.de/beta/js/app.js'), e);
+  assert.equal(await a.text(), 'asset:/beta/js/app.js'); assert.match(a.headers.get('x-robots-tag'), /noindex/);
+  assert.equal(await (await handle(withC('https://tippschrift.de/beta/index.html'), e)).text(), 'asset:/beta/');
+  assert.equal((await handle(withC('https://st.leifps.de/beta/'), e)).status, 404);
+  assert.equal((await handle(withC('https://tippschrift.de/beta/'), env)).status, 401);   // ohne den Umgebungscode ungültig
+});

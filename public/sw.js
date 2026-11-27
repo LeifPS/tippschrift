@@ -1,5 +1,5 @@
 // Service Worker: macht die App offline nutzbar (alles wird beim ersten Besuch auf das Gerät geladen)
-const VER = 'hs-9513f07730';
+const VER = 'hs-ba5557c33d';
 const CORE = [
  "/",
  "/app.css",
@@ -86,6 +86,7 @@ self.addEventListener('message', async (e) => {
 self.addEventListener('fetch', (e) => {
   const r = e.request; if (r.method !== 'GET') return;
   const u = new URL(r.url); if (u.origin !== location.origin) return;
+  if (u.pathname === '/beta' || u.pathname.startsWith('/beta/')) return;   // die Beta hat ihren eigenen Service Worker
   e.respondWith((async () => {
     const c = await caches.open(VER);
     const hit = await c.match(r, { ignoreSearch: true }) || (r.mode === 'navigate' ? await c.match('/', { ignoreSearch: true }) : null);
