@@ -27,3 +27,16 @@ export function drawStrokes(ctx, strokes, which) {
   ctx.restore();
 }
 export const bboxStrokes = (list) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const s of list) for (const [x, y] of s.pts) { const r = s.w / 2; if (x - r < x0) x0 = x - r; if (y - r < y0) y0 = y - r; if (x + r > x1) x1 = x + r; if (y + r > y1) y1 = y + r; } return { x0, y0, x1, y1 }; };
+
+// ---------- Handschrift anpassen: einzelne Wörter verschieben und vergrößern ----------
+// S.wo = { 'Nr:Wort': { dx, dy, sc } }. Bezugspunkt A ist der linke Rand und die tiefste Grundlinie des Worts im
+// ursprünglichen Layout: neu = A + sc·(alt − A) + (dx, dy). So bleibt die Angabe gültig, solange der Text gleich bleibt.
+export function wordAnchor(ents) { let x = Infinity, y = -Infinity; for (const e of ents) if (e.g) { if (e.x < x) x = e.x; if (e.y > y) y = e.y; } return x < Infinity ? [x, y] : null; }
+export function transformWord(ents, A, sc, dx, dy) {
+  for (const e of ents) if (e.g) { e.x = A[0] + sc * (e.x - A[0]) + dx; e.y = A[1] + sc * (e.y - A[1]) + dy; e.m = (e.m || 1) * sc; }
+}
+export function applyWordOv(pg, wo) {
+  const by = new Map(); for (const e of pg) if (e.wk && wo[e.wk]) (by.get(e.wk) || by.set(e.wk, []).get(e.wk)).push(e);
+  for (const [wk, ents] of by) { const o = wo[wk], A = wordAnchor(ents); if (A) transformWord(ents, A, o.sc || 1, o.dx || 0, o.dy || 0); }
+  return pg;
+}

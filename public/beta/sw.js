@@ -1,5 +1,5 @@
 // Service Worker der BETA (nur /beta/): macht die Beta offline nutzbar (alles wird beim ersten Besuch auf das Gerät geladen)
-const VER = 'tsb-b355a1c556';
+const VER = 'tsb-137e3fc26c';
 const CORE = [
  "/beta/",
  "/beta/app.css",

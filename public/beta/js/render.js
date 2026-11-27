@@ -1,5 +1,5 @@
 // Text -> Seitenlayout -> Zeichnen (Handschrift-Motor)
-import { drawStrokes } from './ink.js';
+import { drawStrokes, applyWordOv } from './ink.js';
 import { GNV } from './gnvorlagen.js';
 import { components, bboxOf } from './imgops.js';
 import { parseHdf, getP } from './hdf.js';
@@ -443,6 +443,7 @@ export function layout(text, S, font) {
     } else if (S.header && S.header.trim()) pg.push(...stat(prep(S.header.replace(/\{n\}/g, i + 1).replace(/\{datum\}/g, new Date().toLocaleDateString('de-DE')), S), 'l', Math.max(60, MT - lineH * .25), 100 + i));
     if (S.pageNum) pg.push(...stat((S.pageNumFmt || '{n}').replace(/\{n\}/g, i + 1).replace(/\{gesamt\}/g, total), 'c', PH - Math.max(40, MB * .45), 200 + i));
   });
+  if (S.wo) for (const pg of live) applyWordOv(pg, S.wo);   // Editor: verschobene/vergrößerte Wörter
   return { pages: live, lineH, k, missing: [...missing], PW, PH, errors };
 }
 

@@ -6,7 +6,7 @@
 import { h, toast } from './util.js';
 import { btn, ic } from './ui.js';
 import { drawPage, ensureImages } from './render.js';
-import { drawStrokes, bboxStrokes, pw } from './ink.js';
+import { drawStrokes, bboxStrokes, pw, wordAnchor } from './ink.js';
 
 const PENS = ['#1d1d22', '#1d3a9a', '#c62828', '#1b7a3a', '#d9730d', '#7b3fa0'];
 const MARKS = ['#ffe14d', '#9be38c', '#ff9ad5', '#8ec5ff', '#ffb35c'];
@@ -14,14 +14,18 @@ const PEN_W = [2.2, 3.4, 5.5], MARK_W = [12, 20, 30];
 const LS = (k, d) => { try { const v = localStorage.getItem('hs:ink:' + k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } };
 const SS = (k, v) => { try { localStorage.setItem('hs:ink:' + k, JSON.stringify(v)); } catch (_) { /* egal */ } };
 
-/** @param o { L, S, onSave(inkPages) } – L: fertiges Layout ohne Striche */
-export function openInkEditor(doc, { L, S, onSave }) {
+/** @param o { L, S, onSave(inkPages), onWords({wo, rr}) -> neues Layout } – L: fertiges Layout */
+export function openInkEditor(doc, { L, S, onSave, onWords }) {
   let pages = JSON.parse(JSON.stringify((doc.ink && doc.ink.pages) || {}));
+  let wo = JSON.parse(JSON.stringify(S.wo || {})), rr = JSON.parse(JSON.stringify(S.rr || {}));   // Handschrift anpassen
+  const snap = () => JSON.stringify({ pages, wo, rr });
   const st = { tool: LS('tool', 'pen'), pen: LS('pen', 0), mark: LS('mark', 0), penW: LS('penW', 1), markW: LS('markW', 1), finger: LS('finger', false) };
-  const hist = [JSON.stringify(pages)]; let hi = 0, sel = null;   // sel = { pi, idx:[…], box }
+  const hist = [snap()]; let hi = 0, sel = null;   // sel = { pi, idx:[…], box }
   const save = () => { for (const k of Object.keys(pages)) if (!pages[k] || !pages[k].length) delete pages[k]; onSave(JSON.parse(JSON.stringify(pages))); };
-  const commit = () => { hist.length = hi + 1; hist.push(JSON.stringify(pages)); if (hist.length > 80) hist.shift(); hi = hist.length - 1; updBar(); save(); };
-  const go = (d) => { const n = hi + d; if (n < 0 || n >= hist.length) return; hi = n; pages = JSON.parse(hist[hi]); clearSel(); redrawAll(); updBar(); save(); };
+  const commit = () => { hist.length = hi + 1; hist.push(snap()); if (hist.length > 80) hist.shift(); hi = hist.length - 1; updBar(); save(); };
+  const go = (d) => { const n = hi + d; if (n < 0 || n >= hist.length) return; hi = n; const o = JSON.parse(hist[hi]); const wChanged = JSON.stringify(o.wo) !== JSON.stringify(wo) || JSON.stringify(o.rr) !== JSON.stringify(rr); pages = o.pages; wo = o.wo; rr = o.rr; clearSel(); if (wChanged) relayout(); else redrawAll(); updBar(); save(); };
+  // Wörter geändert: neues Layout holen und die Grundseiten neu zeichnen
+  function relayout() { if (!onWords) return; const nl = onWords({ wo: JSON.parse(JSON.stringify(wo)), rr: JSON.parse(JSON.stringify(rr)) }); if (nl) { L = nl; P.forEach((p) => { p.ents = L.pages[p.i] || []; }); layoutPages(); } }
 
   // ---------- Oberfläche ----------
   const root = h('div', { class: 'inked', role: 'dialog', 'aria-label': 'Editor' });
@@ -60,6 +64,8 @@ export function openInkEditor(doc, { L, S, onSave }) {
       p.ink.width = Math.round(L.PW * sc); p.ink.height = Math.round(L.PH * sc); p.sc = sc; redraw(p);
     }
   }
+  let baseRaf = 0;
+  function redrawBase(p) { cancelAnimationFrame(baseRaf); baseRaf = requestAnimationFrame(() => { const e = p.ents.slice(); e.ink = null; drawPage(p.base, e, L, S, p.sc, false); }); }
   function redraw(p, extra) {
     const g = p.ink.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, p.ink.width, p.ink.height); g.setTransform(p.sc, 0, 0, p.sc, 0, 0);
     const list = pages[p.i] || [];
@@ -83,7 +89,7 @@ export function openInkEditor(doc, { L, S, onSave }) {
     e.preventDefault(); scroller.setPointerCapture(e.pointerId);
     const [x, y] = toPage(p, e), pr = e.pointerType === 'pen' ? Math.max(.05, e.pressure || .5) : .5;
     if (st.tool === 'lasso') {
-      if (sel && sel.pi === p.i && inBox(sel.box, x, y, 8 / p.k)) { act = { kind: 'move', p, id: e.pointerId, x0: x, y0: y, orig: sel.idx.map((j) => JSON.parse(JSON.stringify(pages[p.i][j]))), touch: e.pointerType === 'touch' }; return; }
+      if (sel && sel.pi === p.i && inBox(sel.box, x, y, 8 / p.k)) { act = { kind: 'move', p, id: e.pointerId, x0: x, y0: y, orig: sel.idx.map((j) => JSON.parse(JSON.stringify(pages[p.i][j]))), worig: selWords().flatMap(([, es]) => es.map((q) => [q, q.x, q.y])), touch: e.pointerType === 'touch' }; return; }
       clearSel(); act = { kind: 'lasso', p, id: e.pointerId, poly: [[x, y]], touch: e.pointerType === 'touch' }; return;
     }
     if (st.tool === 'eraser') { act = { kind: 'erase', p, id: e.pointerId, hit: false, touch: e.pointerType === 'touch' }; erase(p, x, y, act); return; }
@@ -121,7 +127,7 @@ export function openInkEditor(doc, { L, S, onSave }) {
     if (a.kind === 'draw') { if (a.s.pts.length === 1 && a.s.t === 'pen') a.s.pts[0][2] = Math.max(.4, a.s.pts[0][2]); redraw(a.p); commit(); }
     else if (a.kind === 'erase') { if (a.hit) commit(); }
     else if (a.kind === 'lasso') { pickLasso(a.p, a.poly); redraw(a.p); }
-    else if (a.kind === 'move' || a.kind === 'scale') { if (a.changed) commit(); }
+    else if (a.kind === 'move') { if (a.changed) { if (a.worig.length) { wordsMoved(a.dx, a.dy); commitWords(); } else commit(); } }
   };
   scroller.addEventListener('pointerup', end); scroller.addEventListener('pointercancel', end);
   const cancelAct = () => { if (act && act.kind === 'draw') { pages[act.p.i].pop(); redraw(act.p); } act = null; };
@@ -157,27 +163,43 @@ export function openInkEditor(doc, { L, S, onSave }) {
   function lassoPath(g, poly, p) { g.save(); g.setLineDash([6 / p.k, 5 / p.k]); g.lineWidth = 1.4 / p.k; g.strokeStyle = '#2f6bff'; g.beginPath(); poly.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke(); g.restore(); }
   const inPoly = (x, y, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
   const inBox = (b, x, y, m = 0) => x >= b.x0 - m && x <= b.x1 + m && y >= b.y0 - m && y <= b.y1 + m;
+  const wordsOf = (p) => { const m = new Map(); for (const e of p.ents) if (e.g && e.wk) (m.get(e.wk) || m.set(e.wk, []).get(e.wk)).push(e); return m; };
+  const wbox = (ents) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const e of ents) { const m = e.m || 1, a = (e.g.adv || L.lineH * .4) * m; x0 = Math.min(x0, e.x); x1 = Math.max(x1, e.x + a); y0 = Math.min(y0, e.y - L.lineH * .5 * m); y1 = Math.max(y1, e.y + L.lineH * .16 * m); } return { x0, y0, x1, y1 }; };
   function pickLasso(p, poly) {
-    if (poly.length < 4) return; const list = pages[p.i] || [], idx = [];
+    if (poly.length < 4) return; const list = pages[p.i] || [], idx = [], words = [];
     list.forEach((s, j) => { const n = s.pts.filter(([x, y]) => inPoly(x, y, poly)).length; if (n >= Math.max(1, s.pts.length * .6)) idx.push(j); });
-    if (!idx.length) return; sel = { pi: p.i, idx }; placeSel();
+    for (const [wk, ents] of wordsOf(p)) { const n = ents.filter((e) => inPoly(e.x + (e.g.adv || 0) * (e.m || 1) / 2, e.y - L.lineH * .2 * (e.m || 1), poly)).length; if (n >= Math.max(1, ents.length * .6)) words.push(wk); }
+    if (!idx.length && !words.length) return; sel = { pi: p.i, idx, words }; placeSel();
   }
+  const selWords = () => { const m = wordsOf(P[sel.pi]); return (sel.words || []).map((wk) => [wk, m.get(wk) || []]); };
+  // Verschieben/Skalieren von Wörtern als Änderung der Angaben in wo (siehe ink.js)
+  function wordsMoved(dx, dy) { for (const [wk] of selWords()) { const o = wo[wk] ||= { dx: 0, dy: 0, sc: 1 }; o.dx += dx; o.dy += dy; } }
+  function wordsScaled(f, P0) { for (const [wk, ents] of selWords()) { const C = wordAnchor(ents); if (!C) continue; const o = wo[wk] ||= { dx: 0, dy: 0, sc: 1 }; o.sc = (o.sc || 1) * f; o.dx += P0[0] + f * (C[0] - P0[0]) - C[0]; o.dy += P0[1] + f * (C[1] - P0[1]) - C[1]; } }
   const selEl = h('div', { class: 'iesel', hidden: true }), selBar = h('div', { class: 'ieselbar' }), handle = h('div', { class: 'iehandle', title: 'Größe ändern' });
   selEl.append(selBar, handle);
   selBar.append(btn('Löschen', { icon: 'trash', cls: 'sm', onclick: () => { const p = P[sel.pi]; pages[sel.pi] = pages[sel.pi].filter((_, j) => !sel.idx.includes(j)); clearSel(); redraw(p); commit(); } }),
-    btn('Duplizieren', { icon: 'copy', cls: 'sm', onclick: () => { const p = P[sel.pi], list = pages[sel.pi], add = sel.idx.map((j) => { const s = JSON.parse(JSON.stringify(list[j])); s.pts.forEach((q) => { q[0] += 24; q[1] += 24; }); return s; }); const n0 = list.length; list.push(...add); sel = { pi: sel.pi, idx: add.map((_, k) => n0 + k) }; redraw(p); placeSel(); commit(); } }));
+    btn('Duplizieren', { icon: 'copy', cls: 'sm', onclick: () => { const p = P[sel.pi], list = pages[sel.pi], add = sel.idx.map((j) => { const s = JSON.parse(JSON.stringify(list[j])); s.pts.forEach((q) => { q[0] += 24; q[1] += 24; }); return s; }); const n0 = list.length; list.push(...add); sel = { pi: sel.pi, idx: add.map((_, k) => n0 + k), words: [] }; redraw(p); placeSel(); commit(); } }));
+  const rerollB = btn('Neu schreiben', { icon: 'dice', cls: 'sm', onclick: () => { for (const [wk] of selWords()) rr[wk] = (rr[wk] || 0) + 1; commitWords(); } });
+  const resetB = btn('Zurücksetzen', { icon: 'undo', cls: 'sm', onclick: () => { for (const [wk] of selWords()) delete wo[wk]; commitWords(); } });
+  selBar.append(rerollB, resetB);
+  function commitWords() { const keep = sel && { ...sel }; relayout(); commit(); if (keep) { sel = keep; requestAnimationFrame(() => placeSel()); } }
   for (const t of ['pointerdown']) selBar.addEventListener(t, (e) => e.stopPropagation());
   handle.addEventListener('pointerdown', (e) => {
     e.stopPropagation(); e.preventDefault(); const p = P[sel.pi]; handle.setPointerCapture(e.pointerId);
-    const b = sel.box, orig = sel.idx.map((j) => JSON.parse(JSON.stringify(pages[p.i][j])));
-    const mv = (ev) => { const [x, y] = toPage(p, ev), f = Math.max(.15, Math.min(8, Math.max((x - b.x0) / Math.max(1, b.x1 - b.x0), (y - b.y0) / Math.max(1, b.y1 - b.y0)))); sel.idx.forEach((j, k) => { const o = orig[k], s = pages[p.i][j]; s.pts = o.pts.map(([px, py, pr]) => [b.x0 + (px - b.x0) * f, b.y0 + (py - b.y0) * f, pr]); s.w = o.w * Math.sqrt(f); }); redraw(p); placeSel(); };
-    const up = () => { handle.removeEventListener('pointermove', mv); handle.removeEventListener('pointerup', up); handle.removeEventListener('pointercancel', up); commit(); };
+    const b = { ...sel.box }, orig = sel.idx.map((j) => JSON.parse(JSON.stringify(pages[p.i][j]))), worig = selWords().flatMap(([, es]) => es.map((q) => [q, q.x, q.y, q.m || 1])); let f = 1;
+    const mv = (ev) => { const [x, y] = toPage(p, ev); f = Math.max(.15, Math.min(8, Math.max((x - b.x0) / Math.max(1, b.x1 - b.x0), (y - b.y0) / Math.max(1, b.y1 - b.y0)))); sel.idx.forEach((j, k) => { const o = orig[k], s = pages[p.i][j]; s.pts = o.pts.map(([px, py, pr]) => [b.x0 + (px - b.x0) * f, b.y0 + (py - b.y0) * f, pr]); s.w = o.w * Math.sqrt(f); });
+      if (worig.length) { for (const [q, ox, oy, om] of worig) { q.x = b.x0 + (ox - b.x0) * f; q.y = b.y0 + (oy - b.y0) * f; q.m = om * f; } redrawBase(p); } redraw(p); placeSel(); };
+    const up = () => { handle.removeEventListener('pointermove', mv); handle.removeEventListener('pointerup', up); handle.removeEventListener('pointercancel', up);
+      if (worig.length) { for (const [q, ox, oy, om] of worig) { q.x = ox; q.y = oy; q.m = om; } wordsScaled(f, [b.x0, b.y0]); commitWords(); } else commit(); };
     handle.addEventListener('pointermove', mv); handle.addEventListener('pointerup', up); handle.addEventListener('pointercancel', up);
   });
-  function moveSel(dx, dy, a) { const p = a.p; sel.idx.forEach((j, k) => { pages[p.i][j].pts = a.orig[k].pts.map(([x, y, pr]) => [x + dx, y + dy, pr]); }); a.changed = true; redraw(p); placeSel(); }
+  function moveSel(dx, dy, a) { const p = a.p; sel.idx.forEach((j, k) => { pages[p.i][j].pts = a.orig[k].pts.map(([x, y, pr]) => [x + dx, y + dy, pr]); }); a.changed = true; a.dx = dx; a.dy = dy;
+    if (a.worig.length) { for (const [q, ox, oy] of a.worig) { q.x = ox + dx; q.y = oy + dy; } redrawBase(p); } redraw(p); placeSel(); }
   function placeSel() {
-    if (!sel) { selEl.hidden = true; return; } const p = P[sel.pi], list = sel.idx.map((j) => pages[p.i][j]).filter(Boolean); if (!list.length) { clearSel(); return; }
-    const b = sel.box = bboxStrokes(list), m = 6 / p.k; b.x0 -= m; b.y0 -= m; b.x1 += m; b.y1 += m;
+    if (!sel) { selEl.hidden = true; return; } const p = P[sel.pi], list = sel.idx.map((j) => pages[p.i][j]).filter(Boolean); if (!list.length && !(sel.words || []).length) { clearSel(); return; }
+    const wl = selWords().flatMap(([, es]) => es), bs = list.length ? bboxStrokes(list) : null, bw = wl.length ? wbox(wl) : null;
+    const b = sel.box = bs && bw ? { x0: Math.min(bs.x0, bw.x0), y0: Math.min(bs.y0, bw.y0), x1: Math.max(bs.x1, bw.x1), y1: Math.max(bs.y1, bw.y1) } : (bs || bw), m = 6 / p.k; b.x0 -= m; b.y0 -= m; b.x1 += m; b.y1 += m;
+    selBar.children[0].hidden = selBar.children[1].hidden = !list.length; rerollB.hidden = resetB.hidden = !wl.length;
     if (selEl.parentNode !== p.box) p.box.append(selEl);
     Object.assign(selEl.style, { left: (b.x0 / L.PW * 100) + '%', top: (b.y0 / L.PH * 100) + '%', width: ((b.x1 - b.x0) / L.PW * 100) + '%', height: ((b.y1 - b.y0) / L.PH * 100) + '%' }); selEl.hidden = false;
   }

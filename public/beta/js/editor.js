@@ -181,7 +181,7 @@ export function editorView(app) {
   async function openInk() {
     await saveNow(); if (!L) await render(); if (!L) return;
     const { openInkEditor } = await import('./inked.js');
-    openInkEditor(doc, { L, S: S(), onSave: (pages) => { const had = hasInk(doc); doc.ink = Object.keys(pages).length ? { v: 1, pages } : null; if (!had && hasInk(doc)) delete doc.inkFree; updFix(); saveSoon(); wraps.forEach((w, i) => dirty.add(i)); renderSoon(); } });
+    openInkEditor(doc, { L, S: S(), onWords: ({ wo, rr }) => { const s = S(); if (Object.keys(wo).length) s.wo = wo; else delete s.wo; s.rr = rr; saveSoon(); L = attachInk(layout(doc.text, s, fontObj), doc); wraps.forEach((w, i) => dirty.add(i)); renderSoon(); return L; }, onSave: (pages) => { const had = hasInk(doc); doc.ink = Object.keys(pages).length ? { v: 1, pages } : null; if (!had && hasInk(doc)) delete doc.inkFree; updFix(); saveSoon(); wraps.forEach((w, i) => dirty.add(i)); renderSoon(); } });
   }
   const edPane = h('div', { class: 'pane ed on' }, tb, findBar, fixEl, ta, missEl, errEl, info);
   const hlUpd = attachHighlight(ta);   // formatierte Ansicht unter dem Textfeld
@@ -289,6 +289,7 @@ export function editorView(app) {
     const s = S(); if (!s.rr || !L) return;
     const da = new Set(); for (const pg of L.pages) for (const e of pg) if (e.wk) da.add(e.wk);
     for (const k of Object.keys(s.rr)) if (!da.has(k)) delete s.rr[k];
+    if (s.wo) for (const k of Object.keys(s.wo)) if (!da.has(k)) delete s.wo[k];
   }
   function drawVisible() {
     if (!L) return;
