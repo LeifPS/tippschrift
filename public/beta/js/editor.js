@@ -7,6 +7,7 @@ import { gnPicker } from './papier.js';
 import { attachHighlight } from './texthl.js';
 import { attachAssist } from './hdfassist.js';
 import { attachInk, hasInk } from './ink.js';
+import { detectGaps, gapToField, readingOrder, numberedPages, parseAnswers, openAiShare } from './worksheet.js';
 import { exportPdf, exportGoodNotes, exportGoodNotesInk, GN_W_DEF, exportPngs, zipOf, fileBase } from './exporter.js';
 import { PACKS } from './packs.js';
 import { openWizard } from './wizard.js';
@@ -14,6 +15,8 @@ import { openTopUp, drawMissing } from './extra.js';
 import { checkText } from './grammar.js';
 import { dbPut, kvSet, kvGet } from './store.js';
 import { snapVersion, openVersions } from './versions.js';
+import { loadBg, attachBg, copyBg, dropBg } from './bgstore.js';
+import { extractFields, fieldSource, PXMM } from './render.js';
 
 const MARGINS = { schmal: [70, 60, 90, 80], normal: [120, 100, 140, 120], breit: [170, 150, 180, 150] };
 
@@ -131,7 +134,8 @@ export function editorView(app) {
         item('Als HDF-Datei speichern', 'Den Text mit Visuals als .hdf sichern', 'download', () => saveFile(new Blob([ta.value], { type: 'text/plain;charset=utf-8' }), `${fileBase(doc.title)}.hdf`)),
         item('Ältere Versionen', 'Einen früheren Stand dieses Dokuments ansehen und zurückholen', 'refresh', async () => { await saveNow(); openVersions(app, doc, {
           onRestore: async (v) => { hPush(); doc.s = { ...v.s }; ta.value = v.text; fire(); await saveNow(); },
-          onCopy: async (v) => { const n = await app.newDoc({ ...doc, id: undefined, text: v.text, s: { ...v.s }, title: (doc.title || 'Dokument') + ' (ältere Version)', autoT: false, created: Date.now(), updated: Date.now(), opened: 0 }); await app.openDoc(n.id); toast('Kopie geöffnet'); } }); }),
+          onCopy: async (v) => { const n = await app.newDoc({ ...doc, id: undefined, text: v.text, s: { ...v.s }, title: (doc.title || 'Dokument') + ' (ältere Version)', autoT: false, created: Date.now(), updated: Date.now(), opened: 0 }); if (doc.s.ws) await copyBg(doc.id, n.id); await app.openDoc(n.id); toast('Kopie geöffnet'); } }); }),
+        ...(S().ws ? [item('Arbeitsblatt entfernen', 'Das importierte Blatt im Hintergrund löschen, die Antworten bleiben', 'trash', async () => { if (!(await confirmBox('Das importierte Arbeitsblatt aus diesem Dokument entfernen? Deine Antworten bleiben im Text.', 'Entfernen'))) return; await dropBg(doc.id); delete doc.s.ws; await saveNow(); render(); toast('Arbeitsblatt entfernt'); })] : []),
         item('Alles markieren', 'Den ganzen Text auswählen', 'check', () => { ta.focus(); ta.select(); }),
         item('Datum einfügen', 'Heutiges Datum an der Cursorposition', 'info', () => insert(new Date().toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }))),
         item(spellOn() ? 'Rechtschreibprüfung ausschalten' : 'Rechtschreibprüfung einschalten', 'Rote Wellenlinien im Textfeld', 'edit', () => { const on = !spellOn(); try { localStorage.setItem('hs:spell', on ? '1' : '0'); } catch (_) { /* egal */ } ta.spellcheck = on; toast(on ? 'Rechtschreibprüfung an' : 'Rechtschreibprüfung aus'); }),
@@ -181,14 +185,74 @@ export function editorView(app) {
   async function openInk() {
     await saveNow(); if (!L) await render(); if (!L) return;
     const { openInkEditor } = await import('./inked.js');
-    openInkEditor(doc, { L, S: S(), onWords: ({ wo, rr }) => { const s = S(); if (Object.keys(wo).length) s.wo = wo; else delete s.wo; s.rr = rr; saveSoon(); L = attachInk(layout(doc.text, s, fontObj), doc); wraps.forEach((w, i) => dirty.add(i)); renderSoon(); return L; }, onSave: (pages) => { const had = hasInk(doc); doc.ink = Object.keys(pages).length ? { v: 1, pages } : null; if (!had && hasInk(doc)) delete doc.inkFree; updFix(); saveSoon(); wraps.forEach((w, i) => dirty.add(i)); renderSoon(); } });
+    openInkEditor(doc, { L, S: S(), onWords: ({ wo, rr }) => { const s = S(); if (Object.keys(wo).length) s.wo = wo; else delete s.wo; s.rr = rr; saveSoon(); L = attachBg(attachInk(layout(doc.text, s, fontObj), doc), curBgs); wraps.forEach((w, i) => dirty.add(i)); renderSoon(); return L; }, onSave: (pages) => { const had = hasInk(doc); doc.ink = Object.keys(pages).length ? { v: 1, pages } : null; if (!had && hasInk(doc)) delete doc.inkFree; updFix(); saveSoon(); wraps.forEach((w, i) => dirty.add(i)); renderSoon(); } });
   }
   const edPane = h('div', { class: 'pane ed on' }, tb, findBar, fixEl, ta, missEl, errEl, info);
   const hlUpd = attachHighlight(ta);   // formatierte Ansicht unter dem Textfeld
   attachAssist(ta, { onEdit: (nv, a, b) => { hPush(); ta.value = nv; ta.setSelectionRange(a, b); fire(); } });   // Vorschläge bei „[“ und Formulare
   pagesEl = h('div', { class: 'preview' });
   missPv = h('div', { class: 'miss tap misspv', hidden: true, role: 'button', tabindex: 0, title: 'Fehlende Zeichen jetzt zeichnen', onclick: () => fixMissing(), onkeydown: (e) => { if (e.key === 'Enter') fixMissing(); } });
-  const pvPane = h('div', { class: 'pane pv' }, missPv, pagesEl);
+  // ---------- Arbeitsblatt: Lücken finden, an die KI geben, Antworten einfügen ----------
+  const wsBar = h('div', { class: 'wsbar', hidden: true },
+    h('b', null, 'Arbeitsblatt'),
+    btn('Lücken finden', { icon: 'search', cls: 'sm', onclick: () => findGaps() }),
+    btn('An KI geben', { icon: 'share', cls: 'sm', onclick: () => giveAi() }),
+    btn('Antworten einfügen', { icon: 'paste', cls: 'sm pri', onclick: () => pasteAnswers() }));
+  const curFields = () => extractFields(ta.value).fields;
+  function updWs() {
+    const on = !!S().ws; wsBar.hidden = !on;
+    wraps.forEach((w) => w._box.querySelectorAll('.wsbadge').forEach((x) => x.remove()));
+    if (!on || !L) return;
+    curFields().forEach((f, fi) => {
+      if (!f.nr || f.text.trim()) return; const w = wraps[(f.seite || 1) - 1]; if (!w) return;
+      const bdg = h('button', { type: 'button', class: 'wsbadge', style: { left: (f.x * PXMM / L.PW * 100) + '%', top: (f.y * PXMM / L.PH * 100) + '%', width: ((f.breite || 20) * PXMM / L.PW * 100) + '%' }, title: 'Lücke ' + f.nr + ' – antippen zum Ausfüllen' }, h('i', null, String(f.nr)));
+      bdg.addEventListener('click', (e) => { e.stopPropagation(); fieldEdit((f.seite || 1) - 1, w._box, f.x * PXMM, f.y * PXMM, fi); });
+      bdg.addEventListener('pointerdown', (e) => e.stopPropagation());
+      w._box.append(bdg);
+    });
+  }
+  function renumber(list) { let n = 0; list.filter((f) => f.nr).sort(readingOrder).forEach((f) => { f.nr = ++n; }); return list; }
+  async function findGaps() {
+    if (fixedNow()) { unfix(() => findGaps()); return; }
+    const bgs = curBgs; if (!bgs || !L) { toast('Kein Arbeitsblatt im Hintergrund', 2500, 'err'); return; }
+    toast('Suche Lücken …', 1500); await new Promise((r) => setTimeout(r, 30));
+    const old = curFields(), keep = old.filter((f) => !(f.nr && !f.text.trim()));   // leere nummerierte Lücken werden neu gesucht
+    const found = [];
+    bgs.forEach((img, i) => { if (img) for (const q of detectGaps(img)) found.push(gapToField(q, img, L, i + 1)); });
+    const near = (a, b) => (a.seite || 1) === (b.seite || 1) && Math.abs(a.y - b.y) < 4 && a.x < b.x + (b.breite || 30) && b.x < a.x + (a.breite || 30);
+    const add = found.filter((f) => !keep.some((k) => near(k, f)));
+    add.forEach((f) => { f.nr = 1; });
+    const all = renumber([...keep.map((f) => ({ ...f, nr: f.nr || 0 })), ...add]);
+    // Text neu aufbauen: Nicht-Feld-Text bleibt, alle Felder kommen sortiert ans Ende
+    let rest = ta.value; for (const f of [...old].reverse()) rest = rest.slice(0, f.start) + rest.slice(f.end);
+    rest = rest.replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '');
+    setText((rest ? rest + '\n' : '') + all.sort(readingOrder).map((f) => fieldSource(f)).join('\n') + '\n');
+    toast(add.length ? `${add.length} Lücken gefunden. Tippe auf eine Nummer, um sie zu ändern – fehlt eine, tippe auf die Stelle.` : 'Keine weiteren Lücken gefunden – tippe auf eine Stelle, um selbst eine anzulegen.', 4500);
+  }
+  async function giveAi() {
+    const fs = curFields().filter((f) => f.nr && !f.text.trim());
+    if (!fs.length) { toast('Erst „Lücken finden“ – oder alle Lücken sind schon ausgefüllt.', 3000); return; }
+    const files = await numberedPages(L, fs, curBgs); openAiShare(files);
+  }
+  async function pasteAnswers() {
+    let t = ''; try { t = await navigator.clipboard.readText(); } catch (_) { /* Zugriff verweigert */ }
+    if (!parseAnswers(t).size) {
+      const v = await new Promise((ok) => { let res = null; sheet('Antworten einfügen', (b, api) => { const tx = h('textarea', { class: 'f', rows: 9, placeholder: '1: …\n2: …\n3: …', style: { fontFamily: 'ui-monospace, Menlo, monospace' } }); tx.value = t || '';
+        b.append(h('p', { class: 'sm mut' }, 'Füge hier die Antwort deiner KI ein. Jede Zeile „Nummer: Antwort“ landet in der Lücke mit dieser Nummer.'), tx, h('div', { class: 'row', style: { justifyContent: 'flex-end', gap: '8px', marginTop: '12px' } }, btn('Abbrechen', { cls: 'ghost', onclick: () => api.close() }), btn('Einfügen', { cls: 'pri', icon: 'check', onclick: () => { res = tx.value; api.close(); } })));
+        setTimeout(() => tx.focus(), 300); }, { onclose: () => ok(res) }); });
+      if (v == null) return; t = v;
+    }
+    const ans = parseAnswers(t); if (!ans.size) { toast('Keine Antworten im Format „1: …“ gefunden', 3500, 'err'); return; }
+    if (fixedNow()) { unfix(() => applyAnswers(ans)); return; }
+    applyAnswers(ans);
+  }
+  function applyAnswers(ans) {
+    const v = ta.value, fs = curFields(); let out = '', p = 0, n = 0, total = fs.filter((f) => f.nr).length;
+    for (const f of fs) { out += v.slice(p, f.start); p = f.end; if (f.nr && ans.has(f.nr) && ans.get(f.nr)) { out += fieldSource({ ...f, text: ans.get(f.nr).replace(/\[\/?feld[^\]]*\]/gi, '') }); n++; } else out += v.slice(f.start, f.end); }
+    out += v.slice(p); setText(out);
+    toast(`${n} von ${total} Lücken ausgefüllt`, 3000);
+  }
+  const pvPane = h('div', { class: 'pane pv' }, wsBar, missPv, pagesEl);
   // Trenner zwischen Text und Blatt (nur bei nebeneinander), Breite wird gemerkt
   const splitter = h('div', { class: 'splitter', role: 'separator', 'aria-orientation': 'vertical', title: 'Ziehen, um die Breite zu ändern' }, h('i'));
   const split = h('div', { class: 'split' }, edPane, splitter, pvPane);
@@ -210,25 +274,27 @@ export function editorView(app) {
   const renderSoon = debounce(() => render(), 140);
 
   // ---------- Vorschau ----------
-  let wraps = [], dirty = new Set(), io = null;
+  let wraps = [], dirty = new Set(), io = null, curBgs = null;
   const scaleFor = (n) => (n <= 3 ? 1.6 : 1.2);
   async function render() {
     if (!doc) return; const my = ++version;
     const font = fontObj = await app.getFont(doc.fontId || app.fontId);
     fontBtn.lastChild.textContent = font.name || 'Schrift';
     await font.prepare(doc.text + ' ' + (S().header || '') + ' ' + [S().kname, S().kfach, S().kdate].join(' ') + ' •');
+    const bgs = curBgs = S().ws ? await loadBg(doc.id) : null;
     if (my !== version) return;
-    L = attachInk(layout(doc.text, S(), font), doc);
+    L = attachBg(attachInk(layout(doc.text, S(), font), doc), bgs);
     pruneRerolls();
     const n = L.pages.length;
     while (wraps.length < n) {
       const i = wraps.length, cv = h('canvas'), box = h('div', { class: 'cv loading', style: { aspectRatio: `${L.PW} / ${L.PH}` } }, cv);
       const w = h('div', { class: 'pg' }, h('div', { class: 'cap' }, h('span'), btn('Als PNG', { cls: 'sm ghost', onclick: () => pagePng(i) })), box);
-      box.addEventListener('click', (ev) => { if (!wordTap(w._i, ev, box)) w.classList.toggle('zoom'); }); w._cv = cv; w._i = i; w._box = box; pagesEl.append(w); wraps.push(w); io && io.observe(w);
+      box.addEventListener('click', (ev) => { if (Date.now() - dragged < 400) return; if (S().ws) { box.querySelector('.wordpop')?.remove(); fieldTap(w._i, ev, box); return; } if (!wordTap(w._i, ev, box)) w.classList.toggle('zoom'); });
+      box.addEventListener('pointerdown', (ev) => fieldDown(w._i, ev, box)); box.addEventListener('touchstart', (ev) => { if (!L || !S().ws || ev.touches.length !== 1 || box.querySelector('.fedit')) return; const t = ev.touches[0], [px, py] = ptOf(t, box); if (fieldAt(w._i, px, py) != null) ev.preventDefault(); }, { passive: false }); box.addEventListener('pointermove', fieldMove); box.addEventListener('pointerup', fieldUp); box.addEventListener('pointercancel', fieldUp); w._cv = cv; w._i = i; w._box = box; pagesEl.append(w); wraps.push(w); io && io.observe(w);
     }
     while (wraps.length > n) { const w = wraps.pop(); io && io.unobserve(w); w.remove(); }
     wraps.forEach((w, i) => { w._box.style.aspectRatio = `${L.PW} / ${L.PH}`; w.firstChild.firstChild.textContent = `Seite ${i + 1} von ${n}`; dirty.add(i); });
-    drawVisible(); updateInfo();
+    drawVisible(); updateInfo(); updWs();
   }
   // Wort in der Vorschau antippen -> nur dieses Wort bekommt andere Varianten
   // ---------- Text und Blatt verbinden ----------
@@ -279,6 +345,70 @@ export function editorView(app) {
     const pop = h('button', { type: 'button', class: 'wordpop', style: { left: Math.min(92, x1 / L.PW * 100) + '%', top: Math.max(0, y0 / L.PH * 100 - 4) + '%' }, onclick: (e2) => { e2.stopPropagation(); reroll(wk); } }, ic('refresh'), 'Neu schreiben');
     box.append(pop); setTimeout(() => pop.remove(), 4000);
     return true;
+  }
+  // ---------- Arbeitsblatt: Antworten an die Lücken tippen ----------
+  const ptOf = (ev, box) => { const r = box.getBoundingClientRect(); return [(ev.clientX - r.left) * L.PW / r.width, (ev.clientY - r.top) * L.PH / r.height]; };
+  function fieldBox(pi, fi) {
+    const es = (L.pages[pi] || []).filter((e) => e.fi === fi && e.g); if (!es.length) return null; const u = S().size;
+    return { x0: Math.min(...es.map((e) => e.x)) - u * .3, x1: Math.max(...es.map((e) => e.x + e.g.adv)) + u * .3, y0: Math.min(...es.map((e) => e.y)) - u * 1.6, y1: Math.max(...es.map((e) => e.y)) + u * .6 };
+  }
+  function fieldAt(pi, px, py) {
+    const seen = new Set();
+    for (const e of L.pages[pi] || []) if (e.fi != null && !seen.has(e.fi)) { seen.add(e.fi); const b = fieldBox(pi, e.fi); if (b && px >= b.x0 && px <= b.x1 && py >= b.y0 && py <= b.y1) return e.fi; }
+    return null;
+  }
+  function setText(v) { hPush(); ta.value = v; ta.dispatchEvent(new Event('input')); hPush(); }
+  function replaceField(fi, f) {   // f = null löscht das Feld
+    const v = ta.value, old = extractFields(v).fields[fi]; if (!old) return;
+    let a = old.start, b = old.end; if (!f) { if (v[b] === '\n') b++; else if (a > 0 && v[a - 1] === '\n') a--; }
+    setText(v.slice(0, a) + (f ? fieldSource(f) : '') + v.slice(b));
+  }
+  function fieldEdit(pi, box, px, py, fi) {
+    box.querySelector('.fedit')?.remove();
+    const old = fi != null ? extractFields(ta.value).fields[fi] : null, u = S().size * ((old && old.groesse) ? old.groesse / 100 : 1);
+    const bx = old ? old.x * PXMM : px, by = old ? old.y * PXMM : py, k = box.getBoundingClientRect().width / L.PW;
+    const inp = h('textarea', { class: 'fedit', rows: 1, placeholder: 'Antwort …', enterkeyhint: 'done', autocapitalize: 'sentences' });
+    inp.value = old ? old.text : '';
+    Object.assign(inp.style, { left: (bx / L.PW * 100) + '%', top: ((by - u * 1.9) / L.PH * 100) + '%', fontSize: Math.max(15, u * 1.5 * k) + 'px', maxWidth: ((L.PW - bx) / L.PW * 100) + '%' });
+    let done = false;
+    const grow = () => { inp.style.height = 'auto'; inp.style.height = inp.scrollHeight + 'px'; inp.style.width = Math.max(120, Math.min(box.clientWidth - bx * k - 8, (inp.value.split('\n').reduce((m, l) => Math.max(m, l.length), 0) + 2) * Math.max(15, u * 1.5 * k) * .6)) + 'px'; };
+    const commit = () => {
+      if (done) return; done = true; const t = inp.value.replace(/\s+$/, ''); inp.remove();
+      if (old) { if (t !== old.text) replaceField(fi, t.trim() ? { ...old, text: t } : null); }
+      else if (t.trim()) { const v = ta.value, f = { seite: pi + 1, x: bx / PXMM, y: by / PXMM, text: t }; setText(v + (v && !v.endsWith('\n') ? '\n' : '') + fieldSource(f) + '\n'); }
+    };
+    inp.addEventListener('input', grow);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); inp.blur(); } else if (e.key === 'Escape') { done = true; inp.remove(); } else if (e.key === 'Backspace' && !inp.value && old) { e.preventDefault(); done = true; inp.remove(); replaceField(fi, null); toast('Lücke entfernt', 1500); } });
+    inp.addEventListener('blur', commit);
+    for (const t of ['click', 'pointerdown']) inp.addEventListener(t, (e) => e.stopPropagation());
+    box.append(inp); grow(); inp.focus({ preventScroll: true }); inp.select();
+  }
+  function fieldTap(pi, ev, box) {
+    if (!L || !L.pages[pi]) return; const [px, py] = ptOf(ev, box);
+    if (box.querySelector('.fedit')) return;   // erst die offene Antwort abschließen (passiert über blur)
+    fieldEdit(pi, box, px, py, fieldAt(pi, px, py));
+  }
+  // Antwort verschieben: auf der Antwort drücken und ziehen
+  let drag = null, dragged = 0;
+  function fieldDown(pi, ev, box) {
+    if (!L || !S().ws || box.querySelector('.fedit')) return; const [px, py] = ptOf(ev, box), fi = fieldAt(pi, px, py); if (fi == null) return;
+    const b = fieldBox(pi, fi), m = h('div', { class: 'fdrag' }); box.append(m);
+    const pos = (dx, dy) => Object.assign(m.style, { left: ((b.x0 + dx) / L.PW * 100) + '%', top: ((b.y0 + dy) / L.PH * 100) + '%', width: ((b.x1 - b.x0) / L.PW * 100) + '%', height: ((b.y1 - b.y0) / L.PH * 100) + '%' });
+    drag = { pi, fi, px, py, m, pos, moved: false, id: ev.pointerId, box }; pos(0, 0); m.style.opacity = 0;
+  }
+  function fieldMove(ev) {
+    if (!drag || ev.pointerId !== drag.id) return; const [px, py] = ptOf(ev, drag.box), dx = px - drag.px, dy = py - drag.py;
+    if (!drag.moved && Math.hypot(dx, dy) < S().size * .6) return;
+    if (!drag.moved) { drag.moved = true; drag.m.style.opacity = 1; try { drag.box.setPointerCapture(ev.pointerId); } catch (_) { /* egal */ } }
+    ev.preventDefault(); drag.pos(dx, dy); drag.dx = dx; drag.dy = dy;
+  }
+  function fieldUp(ev) {
+    if (!drag || ev.pointerId !== drag.id) return; const d = drag; drag = null; d.m.remove();
+    if (ev.type === 'pointercancel') return;
+    if (!d.moved) { if (ev.pointerType !== 'mouse') { dragged = Date.now(); const [px, py] = ptOf(ev, d.box); fieldEdit(d.pi, d.box, px, py, d.fi); } return; }   // Finger: Antippen einer Antwort öffnet sie (Klick kommt wegen preventDefault nicht)
+    dragged = Date.now();
+    const f = extractFields(ta.value).fields[d.fi]; if (!f) return;
+    replaceField(d.fi, { ...f, x: Math.max(0, f.x + d.dx / PXMM), y: Math.max(1, f.y + d.dy / PXMM), seite: d.pi + 1 });
   }
   function reroll(wk) {
     const s = S(); s.rr = { ...(s.rr || {}) }; s.rr[wk] = (s.rr[wk] || 0) + 1;

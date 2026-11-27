@@ -30,7 +30,7 @@ $= 1/3$
 \`\`\`
 
 ## Alle Elemente (es gibt genau diese, andere Namen kennt die App nicht)
-titel, ueberschrift, text, beispiel, aufgabe, antwort, zitat, liste (mit eintrag), spalten (mit spalte), gruppe, abstand, trennlinie, seitenumbruch,
+titel, ueberschrift, text, beispiel, aufgabe, antwort, feld, zitat, liste (mit eintrag), spalten (mit spalte), gruppe, abstand, trennlinie, seitenumbruch,
 formel, gleichung, rechenweg (mit schritt), bruch, wurzel, tabelle, wertetabelle, vokabeln, noten,
 graph (mit funktion, punkt, strecke), geometrie, diagramm (balkendiagramm, kreisdiagramm, liniendiagramm), streudiagramm, ablauf, baum, mindmap, mengen, zeitstrahl, pyramide, kreislauf, schaltung, reaktion, strukturformel.
 Ein unbekannter Name (z. B. [box], [calculation-step], [loesung]) erscheint als roter Platzhalter.
@@ -68,6 +68,7 @@ Wörter in Formeln (z. B. "und", "oder", Einheiten) in Anführungszeichen setzen
 [beispiel]  Kasten. Eigenschaft titel (Standard "Beispiel"); Inhalt: Text/Markdown.
 [aufgabe]  nummer: 1  | punkte: 3 | Inhalt: Aufgabentext, darf Formeln/Graphen/Tabellen enthalten.
 [antwort]  Leeres Antwortfeld zum Selbst-Ausfüllen (kein Platz für ein Ergebnis). hoehe: 40mm | linien: 4 (Schreiblinien) | kaestchen: ja (Karomuster)
+[feld seite=1 x=42 y=118]Antwort[/feld]  Text an fester Stelle der Seite (für importierte Arbeitsblätter; x/y in mm ab oben links, y = Grundlinie; optional breite, groesse in %).
 [zitat] quelle: … | Inhalt   [liste] typ: nummeriert, darin [eintrag]Text[/eintrag]
 [spalten] mit mehreren [spalte]…[/spalte] nebeneinander (breite: 50% optional, abstand: 6mm). Spalten dürfen alles enthalten.
 [gruppe] rand: ja – fasst Inhalt zusammen.   [abstand] hoehe: 10mm   [trennlinie]   [seitenumbruch]

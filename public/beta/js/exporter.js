@@ -82,7 +82,19 @@ export async function exportGoodNotesInk(L, S, title, onProgress = () => {}, opt
   t.width = 360; t.height = Math.round(pc.height * 360 / pc.width); const tg = t.getContext('2d'); tg.fillStyle = '#fff'; tg.fillRect(0, 0, t.width, t.height); tg.drawImage(pc, 0, 0, t.width, t.height);
   const thumb = new Uint8Array(await (await blobOf(t, 'image/jpeg', .85)).arrayBuffer());
   const { makeGoodNotesInk } = await import('./gnink.js');
-  const blob = await makeGoodNotesInk({ pages, title, thumb, paper: gnp }); onProgress(1); return blob;
+  let bgPdf = null;
+  if (gnp && L.pages.some((p) => p.bg)) {   // Arbeitsblatt: Seiten als PDF-Hintergrund, die Schrift bleibt echte Tinte
+    const bp = [];
+    for (let i = 0; i < L.pages.length; i++) {
+      const c = document.createElement('canvas'); c.width = Math.round(L.PW * 200 / 150); c.height = Math.round(L.PH * 200 / 150);
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+      const bg = L.pages[i].bg; if (bg) { const f = Math.min(c.width / bg.width, c.height / bg.height); g.imageSmoothingQuality = 'high'; g.drawImage(bg, (c.width - bg.width * f) / 2, (c.height - bg.height * f) / 2, bg.width * f, bg.height * f); }
+      bp.push({ jpeg: new Uint8Array(await (await blobOf(c, 'image/jpeg', .9)).arrayBuffer()), px: [c.width, c.height], pt: PT });
+      c.width = c.height = 1; await tick();
+    }
+    bgPdf = new Uint8Array(await (await makePdf(bp, title)).arrayBuffer());
+  }
+  const blob = await makeGoodNotesInk({ pages, title, thumb, paper: gnp, bgPdf }); onProgress(1); return blob;
 }
 export async function exportPngs(L, S, title, dpi = 200, transparent = false, onProgress = () => {}) {
   const files = [], base = slug(title);

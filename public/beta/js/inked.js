@@ -60,12 +60,12 @@ export function openInkEditor(doc, { L, S, onSave, onWords }) {
   async function layoutPages() {
     for (const p of P) {
       const cssW = p.box.clientWidth || 600; p.k = cssW / L.PW; const sc = Math.min(1.6, p.k * dpr);
-      const e = p.ents.slice(); e.ink = null; await ensureImages(e); drawPage(p.base, e, L, S, sc, false);
+      const e = p.ents.slice(); e.ink = null; e.bg = p.ents.bg; await ensureImages(e); drawPage(p.base, e, L, S, sc, false);
       p.ink.width = Math.round(L.PW * sc); p.ink.height = Math.round(L.PH * sc); p.sc = sc; redraw(p);
     }
   }
   let baseRaf = 0;
-  function redrawBase(p) { cancelAnimationFrame(baseRaf); baseRaf = requestAnimationFrame(() => { const e = p.ents.slice(); e.ink = null; drawPage(p.base, e, L, S, p.sc, false); }); }
+  function redrawBase(p) { cancelAnimationFrame(baseRaf); baseRaf = requestAnimationFrame(() => { const e = p.ents.slice(); e.ink = null; e.bg = p.ents.bg; drawPage(p.base, e, L, S, p.sc, false); }); }
   function redraw(p, extra) {
     const g = p.ink.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, p.ink.width, p.ink.height); g.setTransform(p.sc, 0, 0, p.sc, 0, 0);
     const list = pages[p.i] || [];

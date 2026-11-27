@@ -5,6 +5,7 @@ import { h, toast } from './util.js';
 import { btn, sheet, confirmBox } from './ui.js';
 import { dbGet, rawPut, rawDel } from './store.js';
 import { layout, drawPage, ensureImages } from './render.js';
+import { loadBg, attachBg } from './bgstore.js';
 
 const KEY = (id) => 'ver:' + id, SLOT = 10 * 60e3, MAX = 60, DAY = 864e5;
 
@@ -62,7 +63,7 @@ export async function openVersions(app, d, { onRestore, onCopy } = {}) {
       const v = all[+box.dataset.i]; if (!box.isConnected) return;
       const font = await app.getFont(d.fontId || app.fontId), txt = (v.text || '').slice(0, 2500);
       await font.prepare(txt + ' •');
-      const L = layout(txt, v.s, font), ent = L.pages[0] || []; await ensureImages(ent);
+      const L = layout(txt, v.s, font), ent = L.pages[0] || []; if (v.s && v.s.ws) attachBg(L, await loadBg(d.id)); await ensureImages(ent);
       const cv = document.createElement('canvas'); cv.style.cssText = 'width:100%;display:block'; drawPage(cv, ent, L, v.s, .3, false);
       box.replaceChildren(cv);
     }

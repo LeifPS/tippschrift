@@ -47,7 +47,8 @@ const PREF_KEYS = ['lastS', 'fontId', 'theme', 'docSort', 'docOrder'];
 export async function backupBlob() {
   const fonts = await dbAll('fonts'), docs = await dbAll('docs');
   const prefs = {}; for (const k of PREF_KEYS) { const v = await kvGet(k, undefined); if (v !== undefined) prefs[k] = v; }   // Standard-Einstellungen, gewählte Schrift usw.
-  const o = { format: 'stools-backup', v: 1, created: Date.now(), fonts: fonts.map((f) => ({ ...f })), docs, folders: await kvGet('folders', []), prefs };
+  const { bgForBackup } = await import('./bgstore.js'), bgs = await bgForBackup(docs.filter((d) => d.s && d.s.ws).map((d) => d.id));   // Arbeitsblatt-Seiten
+  const o = { format: 'stools-backup', v: 1, created: Date.now(), fonts: fonts.map((f) => ({ ...f })), docs, folders: await kvGet('folders', []), prefs, bgs };
   return { blob: new Blob([JSON.stringify(o)], { type: 'application/json' }), fonts: fonts.length, docs: docs.length };
 }
 export async function markBackedUp() { await merkt; await kvSet('backupAt', Date.now()); await kvSet(dirtyKey('fonts'), 0); await kvSet(dirtyKey('docs'), 0); }
@@ -60,6 +61,7 @@ export async function restoreBackup(file) {
   for (const f of o.fonts) await run('fonts', 'readwrite', (st) => st.put(f));
   for (const d of o.docs) await run('docs', 'readwrite', (st) => st.put(d));
   if (Array.isArray(o.folders)) { const da = await kvGet('folders', []), ids = new Set(o.folders.map((f) => f.id)); await kvSet('folders', [...da.filter((f) => !ids.has(f.id)), ...o.folders.filter((f) => f && f.id && typeof f.name === 'string')]); }
+  if (o.bgs && typeof o.bgs === 'object') { const { bgFromBackup } = await import('./bgstore.js'); await bgFromBackup(o.bgs); }
   if (o.prefs && typeof o.prefs === 'object') for (const k of PREF_KEYS) if (k in o.prefs) await kvSet(k, o.prefs[k]);   // „Als Standard merken“ & Co. kommen mit
   return { fonts: o.fonts.length, docs: o.docs.length };
 }

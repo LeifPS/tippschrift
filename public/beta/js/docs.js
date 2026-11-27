@@ -10,6 +10,7 @@ import { uid } from './util.js';
 import { openTemplates } from './vorlagen.js';
 import { openVersions, dropVersions } from './versions.js';
 import { attachInk } from './ink.js';
+import { loadBg, attachBg, copyBg, dropBg } from './bgstore.js';
 
 const SORTS = [['recent', 'Zuletzt benutzt'], ['created', 'Zuletzt erstellt'], ['name', 'Name A–Z'], ['custom', 'Eigene Reihenfolge']];
 const used = (d) => Math.max(d.opened || 0, d.updated || 0, d.created || 0);
@@ -30,6 +31,7 @@ export function docsView(app) {
       const font = await app.getFont(d.fontId || app.fontId), txt = (d.text || '').slice(0, 2500);
       await font.prepare(txt + ' •');
       const L = attachInk(layout(txt, d.s, font), d), ent = L.pages[0] || [];
+      if (d.s && d.s.ws) attachBg(L, await loadBg(d.id));
       await ensureImages(ent);
       cv = document.createElement('canvas'); cv.key = key; cv.style.cssText = 'width:100%;height:100%;display:block';
       drawPage(cv, ent, L, d.s, .4, false); thumbs.set(d.id, cv);
@@ -52,14 +54,14 @@ export function docsView(app) {
   function draw() {
     if (!loaded) return;
     wrap.replaceChildren();
-    const imp = h('input', { type: 'file', accept: '.txt,.md,.markdown,.hdf,text/plain', multiple: true, class: 'sr', onchange: async () => { let last; for (const f of imp.files) last = await app.newDoc({ title: f.name.replace(/\.[^.]+$/, ''), text: await f.text() }); imp.value = ''; if (last) { toast('Hochgeladen'); draw(); } } });
+    const imp = h('input', { type: 'file', accept: '.txt,.md,.markdown,.hdf,text/plain,.pdf,application/pdf,image/*', multiple: true, class: 'sr', onchange: async () => { const fs = [...imp.files]; imp.value = ''; let last, ws = null; for (const f of fs) { if (/\.pdf$|^image\//i.test(f.type) || /\.(pdf|png|jpe?g|heic|webp)$/i.test(f.name)) { try { toast('Arbeitsblatt wird eingelesen …', 8000); ws = await app.newWorksheet(f); } catch (e) { toast('„' + f.name + '“ ließ sich nicht lesen', 3500, 'err'); } } else last = await app.newDoc({ title: f.name.replace(/\.[^.]+$/, ''), text: await f.text() }); } if (ws) { await app.openDoc(ws.id); toast('Tippe auf eine Lücke und schreib deine Antwort', 4000); } else if (last) { toast('Hochgeladen'); draw(); } } });
     const fo = app.folderOf(app.folder); if (!fo) app.folder = null;
     const nDocs = sorted().length;
     wrap.append(h('div', { class: 'row phead' }, h('div', { class: 'sp1' },
       fo ? h('button', { type: 'button', class: 'crumb', onclick: () => { app.folder = null; q = ''; draw(); } }, '‹ Dokumente') : null,
       h('h1', null, fo ? fo.name : 'Dokumente'), h('p', { class: 'mut sm' }, `${nDocs} ${nDocs === 1 ? 'Dokument' : 'Dokumente'}` + (!fo && app.folders.length ? ` · ${app.folders.length} ${app.folders.length === 1 ? 'Ordner' : 'Ordner'}` : ''))),
       fo ? btn('Ordner-Einstellungen', { icon: 'sliders', cls: 'icon', onclick: () => folderSheet(fo), title: 'Name, Farbe und Papier für neue Dokumente' }) : btn('Neuer Ordner', { icon: 'folder', cls: 'icon', onclick: () => newFolder(), title: 'Neuer Ordner (z. B. ein Fach)' }),
-      btn('Textdatei importieren', { icon: 'fileadd', cls: 'icon', onclick: () => imp.click(), title: 'Textdatei importieren (.txt, .md, .hdf)' }), ...(!fo && app.trash.length ? [btn('Papierkorb', { icon: 'trash', cls: 'icon', onclick: trashSheet, title: `Papierkorb (${app.trash.length})` })] : []), btn('Vorlagen', { icon: 'grid', cls: 'icon', onclick: () => openTemplates(app), title: 'Vorlagen' }), btn('Neues Dokument', { icon: 'plus', cls: 'pri icon', onclick: async () => { const d = await app.newDoc(); app.openDoc(d.id); }, title: 'Neues Dokument' }), imp));
+      btn('Importieren', { icon: 'fileadd', cls: 'icon', onclick: () => imp.click(), title: 'Importieren: Textdatei (.txt, .md, .hdf) oder Arbeitsblatt zum Ausfüllen (PDF, Foto)' }), ...(!fo && app.trash.length ? [btn('Papierkorb', { icon: 'trash', cls: 'icon', onclick: trashSheet, title: `Papierkorb (${app.trash.length})` })] : []), btn('Vorlagen', { icon: 'grid', cls: 'icon', onclick: () => openTemplates(app), title: 'Vorlagen' }), btn('Neues Dokument', { icon: 'plus', cls: 'pri icon', onclick: async () => { const d = await app.newDoc(); app.openDoc(d.id); }, title: 'Neues Dokument' }), imp));
     wrap.append(reminderCard());
     const s = h('input', { type: 'search', placeholder: 'Dokumente durchsuchen …', value: q, 'aria-label': 'Dokumente durchsuchen', oninput: () => { q = s.value; grid(); } });
     // Sortieren: Knopf neben der Suche (dahinter liegt eine unsichtbare Auswahlliste, so kommt auf dem iPhone die normale Auswahl)
@@ -126,7 +128,7 @@ export function docsView(app) {
       };
       fill();
       b.append(h('p', { class: 'sm mut', style: { margin: '0 0 12px' } }, 'Gelöschte Dokumente bleiben hier 30 Tage, danach werden sie automatisch endgültig gelöscht.'), list,
-        app.trash.length > 1 ? h('div', { style: { marginTop: '14px' } }, btn('Papierkorb leeren', { icon: 'trash', cls: 'danger', onclick: async () => { if (await confirmBox(`Alle ${app.trash.length} Dokumente endgültig löschen?`, 'Leeren')) { for (const d of [...app.trash]) { await dbDel('docs', d.id); dropVersions(d.id); } await app.loadDocs(); api.close(); draw(); } } })) : null);
+        app.trash.length > 1 ? h('div', { style: { marginTop: '14px' } }, btn('Papierkorb leeren', { icon: 'trash', cls: 'danger', onclick: async () => { if (await confirmBox(`Alle ${app.trash.length} Dokumente endgültig löschen?`, 'Leeren')) { for (const d of [...app.trash]) { await dbDel('docs', d.id); dropVersions(d.id); dropBg(d.id); } await app.loadDocs(); api.close(); draw(); } } })) : null);
     });
   }
 
@@ -187,10 +189,10 @@ export function docsView(app) {
         btn('Öffnen', { icon: 'pen', onclick: () => { api.close(); app.openDoc(d.id); } }),
         btn('Umbenennen', { icon: 'edit', onclick: async () => { api.close(); const nm = await promptBox('Name des Dokuments', d.title || ''); if (nm) { d.title = nm; d.autoT = false; d.updated = Date.now(); await dbPut('docs', d); app.docSaved(d); draw(); } } }),
         btn('In Ordner verschieben', { icon: 'folder', onclick: () => { api.close(); setTimeout(() => moveSheet(d), 250); } }),
-        btn('Duplizieren', { icon: 'copy', onclick: async () => { api.close(); await app.newDoc({ ...d, id: undefined, title: (d.title || 'Dokument') + ' (Kopie)', created: Date.now(), updated: Date.now(), opened: 0 }); draw(); toast('Dupliziert'); } }),
+        btn('Duplizieren', { icon: 'copy', onclick: async () => { api.close(); const n = await app.newDoc({ ...d, id: undefined, title: (d.title || 'Dokument') + ' (Kopie)', created: Date.now(), updated: Date.now(), opened: 0 }); if (d.s && d.s.ws) await copyBg(d.id, n.id); draw(); toast('Dupliziert'); } }),
         btn('Ältere Versionen', { icon: 'refresh', onclick: () => { api.close(); setTimeout(() => openVersions(app, d, {
           onRestore: async (v) => { d.text = v.text; d.s = { ...v.s }; d.updated = Date.now(); await dbPut('docs', d); app.docSaved(d); thumbs.delete(d.id); draw(); },
-          onCopy: async (v) => { await app.newDoc({ ...d, id: undefined, text: v.text, s: { ...v.s }, title: (d.title || 'Dokument') + ' (ältere Version)', autoT: false, created: Date.now(), updated: Date.now(), opened: 0 }); draw(); toast('Als Kopie angelegt'); } }), 250); } }),
+          onCopy: async (v) => { const n = await app.newDoc({ ...d, id: undefined, text: v.text, s: { ...v.s }, title: (d.title || 'Dokument') + ' (ältere Version)', autoT: false, created: Date.now(), updated: Date.now(), opened: 0 }); if (d.s && d.s.ws) await copyBg(d.id, n.id); draw(); toast('Als Kopie angelegt'); } }), 250); } }),
         btn('An den Anfang', { icon: 'cl', onclick: move(-1) }), btn('Ans Ende', { icon: 'cr', onclick: move(1) }),
         btn('Text als Datei speichern', { icon: 'download', onclick: () => { api.close(); saveFile(new Blob([d.text], { type: 'text/plain' }), fileBase(d.title) + '.txt'); } }),
         btn('In den Papierkorb', { icon: 'trash', cls: 'danger', onclick: async () => { api.close(); thumbs.delete(d.id); await app.trashDoc(d); draw(); toast('Im Papierkorb – 30 Tage lang wiederherstellbar', 3000); } })));

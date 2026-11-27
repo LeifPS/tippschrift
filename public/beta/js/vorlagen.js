@@ -1,6 +1,6 @@
 // Vorlagenbibliothek: Sheet mit Kacheln (Vorschau der ersten Seite in deiner Handschrift). Tippen = neues Dokument.
 import { h, toast } from './util.js';
-import { sheet, chips } from './ui.js';
+import { sheet, chips, ic } from './ui.js';
 import { layout, drawPage, ensureImages, DEF } from './render.js';
 import { TEMPLATES, TEMPLATE_CATS } from './templates.js';
 
@@ -37,7 +37,9 @@ export function openTemplates(app) {
           h('div', { class: 'dtitle' }, h('b', null, t.title)), h('span', { class: 'xs mut' }, t.desc));
       }));
     }
-    body.append(hint, h('div', { style: { margin: '0 0 10px', overflowX: 'auto' } }, chips(TEMPLATE_CATS, () => cat, (v) => { cat = v; draw(); })), grid);
+    const file = h('input', { type: 'file', accept: '.pdf,application/pdf,image/*', class: 'sr', onchange: async () => { const f = file.files[0]; file.value = ''; if (!f) return; try { toast('Arbeitsblatt wird eingelesen …', 8000); const d = await app.newWorksheet(f); api.close(); await app.openDoc(d.id); toast('Tippe auf eine Lücke und schreib deine Antwort', 4000); } catch (e) { toast('Die Datei ließ sich nicht lesen', 3500, 'err'); } } });
+    const ws = h('button', { type: 'button', class: 'pack', style: { marginBottom: '12px', width: '100%' }, onclick: () => file.click() }, h('div', { class: 'pi' }, ic('fileadd')), h('div', { class: 'pt' }, h('b', null, 'Arbeitsblatt ausfüllen'), h('span', { class: 'sm mut' }, 'PDF oder Foto importieren, auf eine Lücke tippen und die Antwort in deiner Schrift hineinschreiben')), file);
+    body.append(ws, hint, h('div', { style: { margin: '0 0 10px', overflowX: 'auto' } }, chips(TEMPLATE_CATS, () => cat, (v) => { cat = v; draw(); })), grid);
     draw();
   }, { wide: true });
 }

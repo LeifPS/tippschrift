@@ -4,7 +4,7 @@ import { legalLinks } from './legal.js';
 import { startSession } from './session.js';
 import { h, uid } from './util.js';
 import { ic, mark } from './ui.js';
-import { Font, DEF, migrateS } from './render.js';
+import { Font, DEF, migrateS, gnApply } from './render.js';
 import { dbAll, dbPut, dbDel, kvGet, kvSet, persist, aenderungsHoerer } from './store.js';
 import { initSync } from './sync.js';
 import { editorView } from './editor.js';
@@ -12,6 +12,7 @@ import { fontsView } from './fonts.js';
 import { docsView } from './docs.js';
 import { moreView } from './more.js';
 import { dropVersions } from './versions.js';
+import { saveBg, dropBg } from './bgstore.js';
 
 const app = {
   folders: [], folder: null,
@@ -45,13 +46,13 @@ const app = {
     const all = (await dbAll('docs')).sort((a, b) => (b.updated || 0) - (a.updated || 0));
     for (const d of all) if (migrateS(d.s)) { d.updated = Date.now(); await dbPut('docs', d); }   // alte Papiere -> GoodNotes-Vorlagen
     // Papierkorb: gelöschte Dokumente bleiben 30 Tage, danach endgültig weg
-    for (const d of all) if (d.deleted && Date.now() - d.deleted > 30 * 864e5) { await dbDel('docs', d.id); dropVersions(d.id); }
+    for (const d of all) if (d.deleted && Date.now() - d.deleted > 30 * 864e5) { await dbDel('docs', d.id); dropVersions(d.id); dropBg(d.id); }
     this.trash = all.filter((d) => d.deleted && Date.now() - d.deleted <= 30 * 864e5).sort((a, b) => b.deleted - a.deleted);
     this.docs = all.filter((d) => !d.deleted);
   },
   async trashDoc(d) { d.deleted = Date.now(); d.updated = Date.now(); await dbPut('docs', d); await this.docsChanged(d.id); },
   async restoreDoc(d) { delete d.deleted; d.updated = Date.now(); if (d.folder && !this.folderOf(d.folder)) d.folder = null; await dbPut('docs', d); await this.loadDocs(); },
-  async purgeDoc(d) { await dbDel('docs', d.id); dropVersions(d.id); await this.loadDocs(); },
+  async purgeDoc(d) { await dbDel('docs', d.id); dropVersions(d.id); dropBg(d.id); await this.loadDocs(); },
   docSaved(d) { const i = this.docs.findIndex(x => x.id === d.id); if (i < 0) this.docs.unshift(d); else this.docs[i] = d; this.docs.sort((a, b) => (b.updated || 0) - (a.updated || 0)); },
   async newDoc(o = {}) {
     const last = await kvGet('lastS', {}), now = Date.now();
@@ -59,6 +60,15 @@ const app = {
     const d = { id: uid(), title: 'Neues Dokument', text: '', fontId: this.fontId, created: now, updated: now, ...o, folder: folder || null, s: { ...DEF, ...last, ...fv, ...(o.s || {}) } };
     if (d.s.kopf) { if (!d.s.kdate) d.s.kdate = new Date(now).toLocaleDateString('de-DE'); if (!d.s.kfach && this.folderOf(folder)) d.s.kfach = this.folderOf(folder).name; if (!d.s.kname) { try { d.s.kname = localStorage.getItem('hs:name') || ''; } catch (_) { /* egal */ } } }   // Kopfzeile: Datum von heute, Fach vom Ordner
     if (!o.id) d.id = uid(); await dbPut('docs', d); this.docSaved(d); return d;
+  },
+  /** PDF oder Foto als Arbeitsblatt: Seiten als Hintergrund, Antworten tippt man an die Lücken */
+  async newWorksheet(file, onPage) {
+    const { pagesOf } = await import('./pdfin.js'), pages = await pagesOf(file, onPage);
+    if (!pages.length) throw new Error('Die Datei enthält keine Seiten.');
+    const id = uid(), { n, quer } = await saveBg(id, pages.map((p) => p.canvas));
+    pages.forEach((p) => { p.canvas.width = p.canvas.height = 1; });
+    const s = {}; gnApply(s, 'gnleer', quer ? 'a4q' : 'a4');
+    return this.newDoc({ id, title: (file.name || 'Arbeitsblatt').replace(/\.[^.]+$/, ''), text: '', s: { ...s, ws: n, kopf: false, header: '', pageNum: false, size: 26 } });
   },
   async openDoc(id) { const d = this.docs.find(x => x.id === id); if (!d) return; this.doc = d; d.opened = Date.now(); dbPut('docs', d); kvSet('docId', id); if (d.fontId && this.fonts.find(f => f.id === d.fontId)) this.fontId = d.fontId; await this.views.write.load(d); this.show('write'); },
   async docsChanged(deletedId) { await this.loadDocs(); if (this.doc && this.doc.id === deletedId) this.doc = null; if (!this.docs.length) await this.newDoc({ title: 'Willkommen', text: WELCOME, fontId: this.fontId }); },

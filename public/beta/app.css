@@ -631,3 +631,13 @@ html.inked-open,html.inked-open body{overflow:hidden;overscroll-behavior:none}
 /* Fixiertes Dokument */
 .inkfix{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(47,107,255,.08);border-bottom:.5px solid var(--bd);font-size:13.5px}
 .inkfix span{flex:1}
+/* Arbeitsblatt: Antwort direkt an der Lücke eintippen */
+.pg .cv .fedit{position:absolute;z-index:4;min-width:120px;padding:2px 6px;margin:0;border:1.5px solid var(--acc,#2f6bff);border-radius:6px;background:rgba(255,255,255,.96);color:#16161c;font-family:inherit;line-height:1.25;resize:none;overflow:hidden;box-shadow:0 4px 14px rgba(0,0,0,.14);outline:none}
+.pg .cv .fdrag{position:absolute;z-index:3;border-radius:6px;background:rgba(47,107,255,.12);box-shadow:0 0 0 1.5px rgba(47,107,255,.6);pointer-events:none}
+/* Arbeitsblatt-Leiste und Lücken-Nummern */
+.wsbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:var(--surf);border-bottom:.5px solid var(--bd);flex:none}
+.wsbar b{font-size:14px;margin-right:4px}
+.pg .cv .wsbadge{position:absolute;z-index:3;transform:translateY(-82%);height:26px;min-width:26px;padding:0;border:0;background:rgba(224,36,27,.07);border-bottom:2px solid rgba(224,36,27,.55);border-radius:4px 4px 0 0;cursor:pointer;text-align:left}
+.pg .cv .wsbadge i{display:inline-grid;place-items:center;min-width:20px;height:20px;margin:2px;border-radius:99px;background:#e0241b;color:#fff;font:700 11.5px/1 -apple-system,system-ui,sans-serif;font-style:normal;padding:0 5px;box-sizing:border-box}
+.wsteps{margin:0 0 10px;padding-left:20px;line-height:1.5}.wsteps li{margin:0 0 8px}
+.wprompt pre{white-space:pre-wrap;font-size:12.5px;background:rgba(0,0,0,.04);padding:10px;border-radius:10px}

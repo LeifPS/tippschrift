@@ -139,7 +139,7 @@ function rep(b, from, to) {
   for (let i = 0; i + f.length <= o.length; i++) { let ok = true; for (let j = 0; j < f.length; j++) if (o[i + j] !== f[j]) { ok = false; break; } if (ok) { o.set(t, i); i += f.length - 1; } }
   return o;
 }
-export async function makeGoodNotesInk({ pages, title, thumb, paper }) {
+export async function makeGoodNotesInk({ pages, title, thumb, paper, bgPdf }) {
   // Hintergrund: leere Standardseite oder echte GoodNotes-Vorlage (paper = 'gnlin' | 'gnkar' | 'gnlin2' | 'gndot' | 'gncornell')
   const PP = paper && PAP[paper], AID = PP ? PP.id : ATT_ID;
   let attRec = TPL.att, linkTpl = TPL.link, pageTpl = TPL.page, searchTpl = TPL.search, attsTpl = TPL.attachments, pdfBytes = TPL.pdf;
@@ -147,6 +147,9 @@ export async function makeGoodNotesInk({ pages, title, thumb, paper }) {
     attRec = rep(TPL.att, ATT_ID, AID); { const A = parse(attRec); setIn(A, [6, 5], 'v', PP.pdf.length); attRec = encode(A); }
     linkTpl = rep(TPL.link, ATT_ID, AID); pageTpl = rep(PP.page, PP.src || SRC_DOC, DOC_ID);
     searchTpl = rep(TPL.search, ATT_ID, AID); attsTpl = rep(TPL.attachments, ATT_ID, AID); pdfBytes = PP.pdf;
+  }
+  if (PP && bgPdf) {   // Arbeitsblatt: das eigene PDF ersetzt die Vorlage, Seite k zeigt PDF-Seite k
+    const A = parse(attRec); setIn(A, [6, 5], 'v', bgPdf.length); try { setIn(A, [6, 12, 2], 'v', pages.length); } catch (_) { /* Feld fehlt */ } attRec = encode(A); pdfBytes = bgPdf;
   }
   const now = Date.now(); let tick = 0, clock = 1789663489500, seq = 188700 + Math.floor(Math.random() * 5000);
   const ts = () => f64(now + (++tick) * 3), ck = () => ++clock, ev = () => uid();
@@ -159,6 +162,7 @@ export async function makeGoodNotesInk({ pages, title, thumb, paper }) {
     // Seite
     const P = parse(pageTpl); set(P, 1, 'b', pid); setIn(P, [2, 2], 'b', pid); setIn(P, [2, 10], 'd', ts()); setIn(P, [2, 11], 'b', ev()); setIn(P, [2, 16], 'v', ck());
     for (const f of [12, 13, 17, 19]) { try { setIn(P, [2, f, 2, 2], 'v', rnd()); } catch (_) { /* Feld fehlt in der Vorlage */ } }
+    if (PP && bgPdf) { try { setIn(P, [2, 5], 'v', pi + 1); } catch (_) { /* Feld fehlt */ } }
     recs.push(encode(P));
     // Ebene
     const L = parse(TPL.layer); set(L, 1, 'b', lid); setIn(L, [54, 2], 'b', lid); setIn(L, [54, 3, 1], 'b', pid);

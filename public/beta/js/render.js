@@ -231,8 +231,38 @@ function parseInline(para, S, mk) {
   return out;
 }
 
+// ---------------- Arbeitsblätter: Antworten an fester Stelle ----------------
+// [feld seite=1 x=42 y=118]Antwort[/feld] (Maße in mm ab der linken oberen Ecke, y = Grundlinie der ersten Zeile)
+// oder als Block mit Eigenschaften (seite, x, y, breite, groesse) und dem Text darunter.
+export const PXMM = 150 / 25.4;
+const FELD_EIN = /^[ \t]*\[\s*feld\b([^\]\n]*)\](.*?)\[\/\s*feld\s*\][ \t]*$/gim;
+const FELD_BLOCK = /^[ \t]*\[\s*feld\b([^\]\n]*)\][ \t]*\n([\s\S]*?)\n?[ \t]*\[\/\s*feld\s*\][ \t]*$/gim;
+const FELD_KEYS = ['seite', 'x', 'y', 'breite', 'groesse', 'größe', 'nr'];
+const feldNum = (v) => { const m = String(v).trim().replace(',', '.').match(/^(-?[\d.]+)\s*(mm|cm|%)?$/i); if (!m) return null; const n = parseFloat(m[1]); return m[2] && m[2].toLowerCase() === 'cm' ? n * 10 : n; };
+export function extractFields(text) {
+  const fields = [];
+  const attrs = (a, f) => { for (const m of a.matchAll(/([\wäöüß]+)\s*[=:]\s*"?([^"\s]+)"?/gi)) { const k = m[1].toLowerCase().replace('größe', 'groesse'); if (FELD_KEYS.includes(k)) f[k] = feldNum(m[2]); } };
+  const take = (m, a, body, block) => {
+    const f = { start: m.index, end: m.index + m[0].length, text: '' }; attrs(a, f);
+    if (block) { const rest = []; for (const ln of body.split('\n')) { const kv = ln.match(/^\s*([\wäöüß]+)\s*:\s*(.+)$/i); if (kv && FELD_KEYS.includes(kv[1].toLowerCase()) && !rest.length) attrs(ln.replace(':', '='), f); else rest.push(ln); } f.text = rest.join('\n').trim(); }
+    else f.text = body.trim();
+    f.block = block; fields.push(f);
+  };
+  for (const m of text.matchAll(FELD_BLOCK)) take(m, m[1], m[2], true);
+  for (const m of text.matchAll(FELD_EIN)) if (!fields.some((f) => m.index >= f.start && m.index < f.end)) take(m, m[1], m[2], false);
+  fields.sort((a, b) => a.start - b.start);
+  let out = '', p = 0; for (const f of fields) { out += text.slice(p, f.start) + '\n'.repeat((text.slice(f.start, f.end).match(/\n/g) || []).length); p = f.end; } out += text.slice(p);   // Zeilennummern bleiben gleich
+  return { text: out, fields };
+}
+/** Feld als Text (für das Einfügen und Ändern im Editor) */
+export function fieldSource(f) {
+  const r = (n) => Math.round(n * 10) / 10, a = `seite=${f.seite || 1} x=${r(f.x)} y=${r(f.y)}` + (f.breite ? ` breite=${r(f.breite)}` : '') + (f.groesse ? ` groesse=${f.groesse}` : '') + (f.nr ? ` nr=${f.nr}` : '');
+  return f.text.includes('\n') ? `[feld ${a}]\n${f.text}\n[/feld]` : `[feld ${a}]${f.text}[/feld]`;
+}
+
 export function layout(text, S, font) {
   const errors = [];
+  let fields = null; if (/\[\s*feld\b/i.test(text)) { const r = extractFields(text); text = r.text; fields = r.fields; }
   let hdf = null; try { hdf = /^\s*\[\s*\/?\s*[A-Za-zÄÖÜäöüß]/m.test(text) ? parseHdf(text) : null; } catch (e) { errors.push({ line: 1, level: 'error', msg: 'HDF-Parser: ' + e.message }); }
   if (hdf) errors.push(...hdf.errors);
   const hasEl = !!(hdf && hdf.root.kids.some(k => k.name));
@@ -425,8 +455,22 @@ export function layout(text, S, font) {
     flush();
   };
   if (hasEl) processKids(hdf.root.kids); else flowText(text, S.markup);
+  // Arbeitsblatt: so viele Seiten wie das importierte Blatt, Antworten an ihre Stelle
+  if (S.ws) while (pages.length < S.ws) pages.push([]);
+  if (fields) fields.forEach((f, fi) => {
+    if (f.x == null || f.y == null || !f.text) return;
+    const pi = Math.max(0, Math.round(f.seite || 1) - 1); while (pages.length <= pi) pages.push([]);
+    let sz = S.size * (f.groesse ? f.groesse / 100 : 1); const x0 = f.x * PXMM, yb = f.y * PXMM, w = f.breite ? f.breite * PXMM : Math.max(sz * 4, PW - x0 - 30);
+    const run = () => layout(f.text, { ...S, ws: 0, paper: 'blank', fmt: fmtOf(S), kopf: false, header: '', pageNum: false, wo: null, size: sz, ml: x0, mr: PW - x0 - w, mt: yb - sz * S.lh, mb: -1e6, seed: (S.seed || 1) + 31 * (fi + 1), rr: null }, font);
+    let sub = run();
+    // Lücke mit fester Breite: lieber etwas kleiner schreiben als umbrechen (bis 65 %)
+    const lines = (L0) => { const ys = L0.pages.flat().filter((e) => e.g).map((e) => e.y).sort((p, q) => p - q); let n = ys.length ? 1 : 0; for (let i = 1; i < ys.length; i++) if (ys[i] - ys[i - 1] > sz * 1.2) n++; return n + (L0.pages.length > 1 ? 1 : 0); };
+    if (f.breite && !f.groesse && !f.text.includes('\n')) for (let k = 0; k < 4 && lines(sub) > 1; k++) { sz *= .88; sub = run(); }
+    for (const e of sub.pages.flat()) { delete e.wk; e.fi = fi; pages[pi].push(e); }
+    sub.missing.forEach((c) => missing.add(c));
+  });
   // Kopf- und Fußzeile
-  const live = pages.filter((p, i) => p.length || i === 0), total = live.length;
+  const live = pages.filter((p, i) => p.length || i === 0 || i < (S.ws || 0)), total = live.length;
   const stat = (str, align, yy, seed, scl = .8) => {
     const r2 = mulberry32(seed);
     const parts = str.normalize('NFC').split(' '), runs = parts.map(wd => makeWord([...wd].map(c => ({ c })), scl)), gap = S.size * 1.0 * scl;
@@ -547,6 +591,7 @@ export function drawPage(canvas, entries, L, S, scale, transparent) {
   }
   if (transparent) { ctx.globalAlpha = S.inkAlpha; ctx.drawImage(fin, 0, 0); ctx.globalAlpha = 1; if (entries.ink) { ctx.setTransform(scale, 0, 0, scale, 0, 0); drawStrokes(ctx, entries.ink); ctx.setTransform(1, 0, 0, 1, 0, 0); } return; }
   ctx.setTransform(scale, 0, 0, scale, 0, 0); drawPaper(ctx, S, lineH, PW, PH);
+  if (entries.bg) { const bg = entries.bg, bw = bg.width, bh = bg.height, f = Math.min(PW / bw, PH / bh); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(bg, (PW - bw * f) / 2, (PH - bh * f) / 2, bw * f, bh * f); }   // Arbeitsblatt
   for (const e of entries) if (e.hl) { ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = 'rgba(255,228,110,.6)'; const h = e.hl, hh = h.y2 - h.y1; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(h.x1 - hh * .08, h.y1, h.x2 - h.x1 + hh * .16, hh, hh / 2); else ctx.rect(h.x1, h.y1, h.x2 - h.x1, hh); ctx.fill(); }   // wie der GoodNotes-Textmarker: runde Enden
   if (entries.ink) drawStrokes(ctx, entries.ink, 'marker');   // Editor: Textmarker unter der Schrift
   ctx.setTransform(1, 0, 0, 1, 0, 0);
