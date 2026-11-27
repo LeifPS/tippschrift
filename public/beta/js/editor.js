@@ -5,6 +5,7 @@ import { exportVideo, videoSupported } from './video.js';
 import { layout, drawPage, ensureImages, FORMATS, PAPERS, PAPER_COLORS, PENS, DEF, GNPAPER, fmtOf, gnOf, gnApply, INKS } from './render.js';
 import { gnPicker } from './papier.js';
 import { attachHighlight } from './texthl.js';
+import { attachAssist } from './hdfassist.js';
 import { exportPdf, exportGoodNotes, exportGoodNotesInk, GN_W_DEF, exportPngs, zipOf, fileBase } from './exporter.js';
 import { PACKS } from './packs.js';
 import { openWizard } from './wizard.js';
@@ -146,7 +147,7 @@ export function editorView(app) {
     btn('Überschrift', { icon: 'head', cls: 'icon', onclick: linePre('# '), title: 'Überschrift (# am Zeilenanfang)' }), btn('Liste', { icon: 'list', cls: 'icon', onclick: linePre('- '), title: 'Aufzählung (- am Zeilenanfang)' }), btn('Nummerierung', { icon: 'numlist', cls: 'icon', onclick: linePre('1. '), title: 'Nummerierte Liste (1. am Zeilenanfang)' }),
     h('i', { class: 'vs' }), (undoB = btn('Rückgängig', { icon: 'undo', cls: 'icon', onclick: () => hGo(-1), title: 'Rückgängig (Strg/Cmd+Z)', disabled: true })), (redoB = btn('Wiederholen', { icon: 'redo', cls: 'icon', onclick: () => hGo(1), title: 'Wiederholen (Strg/Cmd+Umschalt+Z)', disabled: true })),
     h('i', { class: 'vs' }), btn('Einfügen', { icon: 'paste', cls: 'icon', onclick: pasteTxt, title: 'Text aus der Zwischenablage einfügen' }), btn('Kopieren', { icon: 'copy', cls: 'icon', onclick: copyTxt, title: 'Auswahl (oder alles) kopieren' }), btn('Suchen und Ersetzen', { icon: 'search', cls: 'icon', onclick: () => toggleFind(true), title: 'Suchen und Ersetzen (Strg/Cmd+F)' }),
-    h('i', { class: 'vs' }), btn('Sonderzeichen', { icon: 'omega', cls: 'icon', onclick: () => openPalette(), title: 'Sonderzeichen und Kürzel' }), btn('Mehr', { icon: 'more', cls: 'icon', onclick: () => openMore(), title: 'Weitere Textfunktionen' }));
+    h('i', { class: 'vs' }), btn('Element einfügen', { icon: 'plus', cls: 'icon', onclick: () => { const v = ta.value, p = ta.selectionStart, ls = v.lastIndexOf('\n', p - 1) + 1, pre = v.slice(ls, p).trim() ? '\n' : ''; hPush(); ta.focus(); ta.setRangeText(pre + '[', p, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); }, title: 'Element einfügen: Graph, Tabelle, Kasten … (oder einfach [ tippen)' }), btn('Sonderzeichen', { icon: 'omega', cls: 'icon', onclick: () => openPalette(), title: 'Sonderzeichen und Kürzel' }), btn('Mehr', { icon: 'more', cls: 'icon', onclick: () => openMore(), title: 'Weitere Textfunktionen' }));
   ta = h('textarea', { id: 'txt', spellcheck: true, lang: 'de', 'aria-label': 'Text', placeholder: 'Schreib oder füg hier deinen Text ein …\n\nTipps: **fett**, __unterstrichen__, ==markiert==, # Überschrift, - Liste\nMathe: x^2, a_1, ->, <=, \\alpha, \\pi', oninput: () => { doc.text = ta.value; hSoon(); saveSoon(); renderSoon(); } });
   ta.spellcheck = spellOn();
   ta.addEventListener('keydown', (e) => {
@@ -170,6 +171,7 @@ export function editorView(app) {
   info = h('div', { class: 'stat' }); missEl = h('div', { class: 'miss tap', hidden: true, role: 'button', tabindex: 0, title: 'Fehlende Zeichen jetzt zeichnen', onclick: () => fixMissing(), onkeydown: (e) => { if (e.key === 'Enter') fixMissing(); } }); errEl = h('div', { class: 'miss', hidden: true });
   const edPane = h('div', { class: 'pane ed on' }, tb, findBar, ta, missEl, errEl, info);
   const hlUpd = attachHighlight(ta);   // formatierte Ansicht unter dem Textfeld
+  attachAssist(ta, { onEdit: (nv, a, b) => { hPush(); ta.value = nv; ta.setSelectionRange(a, b); fire(); } });   // Vorschläge bei „[“ und Formulare
   pagesEl = h('div', { class: 'preview' });
   missPv = h('div', { class: 'miss tap misspv', hidden: true, role: 'button', tabindex: 0, title: 'Fehlende Zeichen jetzt zeichnen', onclick: () => fixMissing(), onkeydown: (e) => { if (e.key === 'Enter') fixMissing(); } });
   const pvPane = h('div', { class: 'pane pv' }, missPv, pagesEl);
