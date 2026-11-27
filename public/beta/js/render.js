@@ -1,4 +1,5 @@
 // Text -> Seitenlayout -> Zeichnen (Handschrift-Motor)
+import { drawStrokes } from './ink.js';
 import { GNV } from './gnvorlagen.js';
 import { components, bboxOf } from './imgops.js';
 import { parseHdf, getP } from './hdf.js';
@@ -543,13 +544,15 @@ export function drawPage(canvas, entries, L, S, scale, transparent) {
     ic.setTransform(1, 0, 0, 1, 0, 0); ic.globalAlpha = 1; ic.globalCompositeOperation = 'source-in'; ic.fillStyle = col; ic.fillRect(0, 0, W, H);
     ic.globalCompositeOperation = 'source-over'; fc.drawImage(lay, 0, 0);
   }
-  if (transparent) { ctx.globalAlpha = S.inkAlpha; ctx.drawImage(fin, 0, 0); ctx.globalAlpha = 1; return; }
+  if (transparent) { ctx.globalAlpha = S.inkAlpha; ctx.drawImage(fin, 0, 0); ctx.globalAlpha = 1; if (entries.ink) { ctx.setTransform(scale, 0, 0, scale, 0, 0); drawStrokes(ctx, entries.ink); ctx.setTransform(1, 0, 0, 1, 0, 0); } return; }
   ctx.setTransform(scale, 0, 0, scale, 0, 0); drawPaper(ctx, S, lineH, PW, PH);
   for (const e of entries) if (e.hl) { ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = 'rgba(255,228,110,.6)'; const h = e.hl, hh = h.y2 - h.y1; ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(h.x1 - hh * .08, h.y1, h.x2 - h.x1 + hh * .16, hh, hh / 2); else ctx.rect(h.x1, h.y1, h.x2 - h.x1, hh); ctx.fill(); }   // wie der GoodNotes-Textmarker: runde Enden
+  if (entries.ink) drawStrokes(ctx, entries.ink, 'marker');   // Editor: Textmarker unter der Schrift
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalCompositeOperation = S.paperColor === 'dunkel' ? 'source-over' : 'multiply'; ctx.globalAlpha = S.inkAlpha;
   if (S.paperColor === 'dunkel') { ctx.drawImage(fin, 0, 0); } else ctx.drawImage(fin, 0, 0);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  if (entries.ink) { ctx.setTransform(scale, 0, 0, scale, 0, 0); drawStrokes(ctx, entries.ink, 'pen'); ctx.setTransform(1, 0, 0, 1, 0, 0); }   // Editor: Stift über der Schrift
 }
 export { bboxOf };
 

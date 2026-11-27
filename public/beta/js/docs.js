@@ -9,6 +9,7 @@ import { gnPicker } from './papier.js';
 import { uid } from './util.js';
 import { openTemplates } from './vorlagen.js';
 import { openVersions, dropVersions } from './versions.js';
+import { attachInk } from './ink.js';
 
 const SORTS = [['recent', 'Zuletzt benutzt'], ['created', 'Zuletzt erstellt'], ['name', 'Name A–Z'], ['custom', 'Eigene Reihenfolge']];
 const used = (d) => Math.max(d.opened || 0, d.updated || 0, d.created || 0);
@@ -28,7 +29,7 @@ export function docsView(app) {
     if (!cv || cv.key !== key) {
       const font = await app.getFont(d.fontId || app.fontId), txt = (d.text || '').slice(0, 2500);
       await font.prepare(txt + ' •');
-      const L = layout(txt, d.s, font), ent = L.pages[0] || [];
+      const L = attachInk(layout(txt, d.s, font), d), ent = L.pages[0] || [];
       await ensureImages(ent);
       cv = document.createElement('canvas'); cv.key = key; cv.style.cssText = 'width:100%;height:100%;display:block';
       drawPage(cv, ent, L, d.s, .4, false); thumbs.set(d.id, cv);

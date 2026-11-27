@@ -6,6 +6,7 @@ import { layout, drawPage, ensureImages, FORMATS, PAPERS, PAPER_COLORS, PENS, DE
 import { gnPicker } from './papier.js';
 import { attachHighlight } from './texthl.js';
 import { attachAssist } from './hdfassist.js';
+import { attachInk, hasInk } from './ink.js';
 import { exportPdf, exportGoodNotes, exportGoodNotesInk, GN_W_DEF, exportPngs, zipOf, fileBase } from './exporter.js';
 import { PACKS } from './packs.js';
 import { openWizard } from './wizard.js';
@@ -38,7 +39,7 @@ export function editorView(app) {
     aiBtn.disabled = false;
   } });
   const bar = h('div', { class: 'bar' }, btn('Zurück zu den Dokumenten', { icon: 'cl', cls: 'icon', onclick: async () => { await saveNow(); app.show('docs'); } }), h('div', { class: 't' }, title), aiBtn,
-    btn('Einstellungen', { icon: 'sliders', cls: 'icon', onclick: () => openSettings() }), btn(h('span', { class: 'lbl' }, 'Exportieren'), { icon: 'download', cls: 'pri expbtn', title: 'Exportieren', onclick: () => openExport() }));
+    btn('Zeichnen', { icon: 'pen', cls: 'icon', title: 'Auf den Seiten schreiben und zeichnen', onclick: () => openInk() }), btn('Einstellungen', { icon: 'sliders', cls: 'icon', onclick: () => { if (fixedNow()) { unfix(() => openSettings()); return; } openSettings(); } }), btn(h('span', { class: 'lbl' }, 'Exportieren'), { icon: 'download', cls: 'pri expbtn', title: 'Exportieren', onclick: () => openExport() }));
   const segEl = h('div', { class: 'seg2' }, seg([['ed', 'Schreiben'], ['pv', 'Vorschau']], () => pane, v => { pane = v; showPane(); }));
   // ---------- Werkzeugleiste ----------
   const fontBtn = h('button', { type: 'button', class: 'btn fontsel', onclick: () => pickFont(), title: 'Schrift wechseln' }, ic('type'), h('span'));
@@ -148,7 +149,7 @@ export function editorView(app) {
     h('i', { class: 'vs' }), (undoB = btn('Rückgängig', { icon: 'undo', cls: 'icon', onclick: () => hGo(-1), title: 'Rückgängig (Strg/Cmd+Z)', disabled: true })), (redoB = btn('Wiederholen', { icon: 'redo', cls: 'icon', onclick: () => hGo(1), title: 'Wiederholen (Strg/Cmd+Umschalt+Z)', disabled: true })),
     h('i', { class: 'vs' }), btn('Einfügen', { icon: 'paste', cls: 'icon', onclick: pasteTxt, title: 'Text aus der Zwischenablage einfügen' }), btn('Kopieren', { icon: 'copy', cls: 'icon', onclick: copyTxt, title: 'Auswahl (oder alles) kopieren' }), btn('Suchen und Ersetzen', { icon: 'search', cls: 'icon', onclick: () => toggleFind(true), title: 'Suchen und Ersetzen (Strg/Cmd+F)' }),
     h('i', { class: 'vs' }), btn('Element einfügen', { icon: 'plus', cls: 'icon', onclick: () => { const v = ta.value, p = ta.selectionStart, ls = v.lastIndexOf('\n', p - 1) + 1, pre = v.slice(ls, p).trim() ? '\n' : ''; hPush(); ta.focus(); ta.setRangeText(pre + '[', p, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); }, title: 'Element einfügen: Graph, Tabelle, Kasten … (oder einfach [ tippen)' }), btn('Sonderzeichen', { icon: 'omega', cls: 'icon', onclick: () => openPalette(), title: 'Sonderzeichen und Kürzel' }), btn('Mehr', { icon: 'more', cls: 'icon', onclick: () => openMore(), title: 'Weitere Textfunktionen' }));
-  ta = h('textarea', { id: 'txt', spellcheck: true, lang: 'de', 'aria-label': 'Text', placeholder: 'Schreib oder füg hier deinen Text ein …\n\nTipps: **fett**, __unterstrichen__, ==markiert==, # Überschrift, - Liste\nMathe: x^2, a_1, ->, <=, \\alpha, \\pi', oninput: () => { doc.text = ta.value; hSoon(); saveSoon(); renderSoon(); } });
+  ta = h('textarea', { id: 'txt', spellcheck: true, lang: 'de', 'aria-label': 'Text', placeholder: 'Schreib oder füg hier deinen Text ein …\n\nTipps: **fett**, __unterstrichen__, ==markiert==, # Überschrift, - Liste\nMathe: x^2, a_1, ->, <=, \\alpha, \\pi', oninput: () => { if (fixedNow() && ta.value !== doc.text) { ta.value = doc.text; toast('Der Text ist fixiert, weil das Dokument Zeichnungen enthält. Oben auf „Trotzdem bearbeiten“ tippen.', 3500); return; } doc.text = ta.value; hSoon(); saveSoon(); renderSoon(); } });
   ta.spellcheck = spellOn();
   ta.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
@@ -169,7 +170,20 @@ export function editorView(app) {
     }
   });
   info = h('div', { class: 'stat' }); missEl = h('div', { class: 'miss tap', hidden: true, role: 'button', tabindex: 0, title: 'Fehlende Zeichen jetzt zeichnen', onclick: () => fixMissing(), onkeydown: (e) => { if (e.key === 'Enter') fixMissing(); } }); errEl = h('div', { class: 'miss', hidden: true });
-  const edPane = h('div', { class: 'pane ed on' }, tb, findBar, ta, missEl, errEl, info);
+  // ---------- Editor: Zeichnungen fixieren das Dokument ----------
+  const fixEl = h('div', { class: 'inkfix', hidden: true }, ic('pen'), h('span', null, 'Dieses Dokument enthält Zeichnungen. Damit nichts verrutscht, ist der Text fixiert.'), btn('Trotzdem bearbeiten', { cls: 'sm', onclick: () => unfix() }));
+  const fixedNow = () => !!(doc && hasInk(doc) && !doc.inkFree);
+  function updFix() { const f = fixedNow(); fixEl.hidden = !f; ta.readOnly = f; if (doc && !hasInk(doc) && doc.inkFree) delete doc.inkFree; }
+  async function unfix(then) {
+    if (!(await confirmBox('Text und Einstellungen wieder bearbeiten? Deine Zeichnungen bleiben an ihrer Stelle auf der Seite – wenn sich der Text verschiebt, passen sie danach nicht mehr dazu.', 'Bearbeiten'))) return;
+    doc.inkFree = true; saveSoon(); updFix(); then && then();
+  }
+  async function openInk() {
+    await saveNow(); if (!L) await render(); if (!L) return;
+    const { openInkEditor } = await import('./inked.js');
+    openInkEditor(doc, { L, S: S(), onSave: (pages) => { const had = hasInk(doc); doc.ink = Object.keys(pages).length ? { v: 1, pages } : null; if (!had && hasInk(doc)) delete doc.inkFree; updFix(); saveSoon(); wraps.forEach((w, i) => dirty.add(i)); renderSoon(); } });
+  }
+  const edPane = h('div', { class: 'pane ed on' }, tb, findBar, fixEl, ta, missEl, errEl, info);
   const hlUpd = attachHighlight(ta);   // formatierte Ansicht unter dem Textfeld
   attachAssist(ta, { onEdit: (nv, a, b) => { hPush(); ta.value = nv; ta.setSelectionRange(a, b); fire(); } });   // Vorschläge bei „[“ und Formulare
   pagesEl = h('div', { class: 'preview' });
@@ -204,7 +218,7 @@ export function editorView(app) {
     fontBtn.lastChild.textContent = font.name || 'Schrift';
     await font.prepare(doc.text + ' ' + (S().header || '') + ' ' + [S().kname, S().kfach, S().kdate].join(' ') + ' •');
     if (my !== version) return;
-    L = layout(doc.text, S(), font);
+    L = attachInk(layout(doc.text, S(), font), doc);
     pruneRerolls();
     const n = L.pages.length;
     while (wraps.length < n) {
@@ -454,7 +468,7 @@ export function editorView(app) {
 
   return {
     el: root,
-    async load(d) { snapVersion(d); doc = d; title.value = d.title || ''; ta.value = d.text || ''; hlUpd(); hReset(); toggleFind(false); wraps.forEach(w => w.remove()); wraps = []; dirty.clear(); L = null; await render(); },
+    async load(d) { snapVersion(d); doc = d; title.value = d.title || ''; ta.value = d.text || ''; updFix(); hlUpd(); hReset(); toggleFind(false); wraps.forEach(w => w.remove()); wraps = []; dirty.clear(); L = null; await render(); },
     refresh() { return render(); },
     focus() { ta && ta.focus(); },
     get doc() { return doc; },

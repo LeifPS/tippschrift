@@ -71,6 +71,11 @@ export async function exportGoodNotesInk(L, S, title, onProgress = () => {}, opt
         }
       }
     }
+    for (const s of L.pages[pi].ink || []) {   // im Editor Gezeichnetes: als echte GoodNotes-Striche (Textmarker als Marker)
+      const c = cssRgba(s.c), pts = s.pts.map(([x, y]) => T(x, y)); if (!pts.length) continue; if (pts.length === 1) pts.push([pts[0][0] + .2, pts[0][1]]);
+      if (s.t === 'marker') hl.push({ pts, w: s.w * fit, color: [c[0], c[1], c[2], .5], marker: true });
+      else { const avg = s.pts.reduce((a, q) => a + (q[2] == null ? .5 : q[2]), 0) / s.pts.length; ink.push({ pts, w: s.w * (.35 + .9 * avg) * fit, color: [c[0], c[1], c[2], 1] }); }
+    }
     pages.push(hl.concat(ink)); onProgress((pi + 1) / L.pages.length * .8); await tick();
   }
   const gnp = gnOf(S) ? gnKey(S) : null, t = document.createElement('canvas'), pc = await pageCanvas(L, 0, { ...S, paper: gnp || 'blank', paperColor: 'weiss', scan: false }, 100, false);
